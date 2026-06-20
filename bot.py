@@ -4848,36 +4848,67 @@ _vdf_check_counter = 0
 
 def _load_vdf_checks():
     global _vdf_check_counter, _vdf_checks
+
+    file_data = None
     if VDF_CHECKS_FILE.exists():
         try:
-            data = json.loads(VDF_CHECKS_FILE.read_text(encoding="utf-8"))
+            file_data = json.loads(VDF_CHECKS_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки vdf_checks.json из файла: {e}")
+
+    db_data = None
+    if _db.db_is_available():
+        try:
+            db_data = _db.db_load("vdf_checks.json")
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки vdf_checks.json из БД: {e}")
+
+    data = None
+    if file_data and db_data:
+        file_counter = file_data.get("counter", 0)
+        db_counter = db_data.get("counter", 0)
+        data = file_data if file_counter >= db_counter else db_data
+    elif file_data:
+        data = file_data
+    elif db_data:
+        data = db_data
+
+    if data:
+        try:
             _vdf_check_counter = data.get("counter", 0)
             raw = data.get("checks", {})
             _vdf_checks = {int(k): v for k, v in raw.items()}
-            print(f"📂 Загружено VDF проверок: {len(_vdf_checks)}, счётчик: #{_vdf_check_counter}")
+            source = "БД" if data is db_data else "файла"
+            print(f"📂 Загружено VDF проверок: {len(_vdf_checks)}, счётчик: #{_vdf_check_counter} ({source})")
         except Exception as e:
-            print(f"⚠️ Ошибка загрузки vdf_checks.json: {e}")
+            print(f"⚠️ Ошибка разбора vdf_checks.json: {e}")
             _vdf_check_counter = 0
             _vdf_checks = {}
+    else:
+        _vdf_check_counter = 0
+        _vdf_checks = {}
 
 
 def _save_vdf_checks_to_file():
     try:
-        VDF_CHECKS_FILE.write_text(json.dumps({
+        _save_json_atomic(VDF_CHECKS_FILE, {
             "counter": _vdf_check_counter,
             "checks": _vdf_checks,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        })
     except Exception as e:
         print(f"⚠️ Ошибка сохранения vdf_checks.json: {e}")
 
 
-def _save_vdf_check(results: list[dict], filename: str) -> int:
+def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = "", message_url: str = "") -> int:
     global _vdf_check_counter
     _vdf_check_counter += 1
     _vdf_checks[_vdf_check_counter] = {
         "results": results,
         "filename": filename,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "attachment_url": attachment_url,
+        "message_url": message_url,
+        "steamids": [r.get("steamid") for r in results if r.get("steamid")],
     }
     _save_vdf_checks_to_file()
     return _vdf_check_counter
@@ -4885,6 +4916,70 @@ def _save_vdf_check(results: list[dict], filename: str) -> int:
 
 _load_vdf_checks()
 _save_vdf_checks_to_file()
+
+
+# ── Повторная проверка VDF-файлов при появлении игроков на серверах ──
+_vdf_recheck_lock = asyncio.Lock()
+_vdf_recheck_last: dict[int, float] = {}
+
+
+async def _recheck_vdf_check(check_id: int, steamids: list[str]):
+    try:
+        new_results = await _check_vdf_accounts(steamids)
+        if not new_results:
+            return
+        result_map = {r.get("steamid"): r for r in new_results if r.get("steamid")}
+        existing = _vdf_checks[check_id].get("results", [])
+        updated = 0
+        for r in existing:
+            sid = r.get("steamid")
+            if sid and sid in result_map:
+                r.update(result_map[sid])
+                updated += 1
+        _vdf_checks[check_id]["last_recheck"] = datetime.now(timezone.utc).isoformat()
+        _save_vdf_checks_to_file()
+        _log(f"🔄 VDF #{check_id}: обновлено {updated}/{len(steamids)} аккаунтов", discord=False)
+    except Exception as e:
+        _log(f"⚠️ VDF recheck #{check_id} ошибка: {e}", discord=False)
+
+
+@tasks.loop(minutes=5)
+async def vdf_recheck_loop():
+    if not _vdf_checks:
+        return
+    async with _vdf_recheck_lock:
+        try:
+            async with aiohttp.ClientSession() as session:
+                servers = await _fetch_json(session, f"{API_BASE}/servers")
+            if not servers:
+                return
+            online_sids = set()
+            for srv in servers:
+                for player in srv.get("live_data", {}).get("players", []):
+                    sid = str(player.get("steam_id") or "").strip()
+                    if sid:
+                        online_sids.add(sid)
+            if not online_sids:
+                return
+            now = time.time()
+            recheck_queue = []
+            for check_id, check in _vdf_checks.items():
+                if now - _vdf_recheck_last.get(check_id, 0) < 600:
+                    continue
+                check_sids = {r.get("steamid") for r in check.get("results", []) if r.get("steamid")}
+                if not (check_sids & online_sids):
+                    continue
+                recheck_queue.append((check_id, list(check_sids)))
+                _vdf_recheck_last[check_id] = now
+            if not recheck_queue:
+                return
+            recheck_queue = recheck_queue[:10]
+            _log(f"🔄 VDF recheck: {len(recheck_queue)} файлов с онлайн-игроками", discord=False)
+            for check_id, steamids in recheck_queue:
+                await _recheck_vdf_check(check_id, steamids)
+                await asyncio.sleep(2)
+        except Exception as e:
+            _log(f"⚠️ VDF recheck loop ошибка: {e}", discord=False)
 
 
 @tree.command(name="profile", description="Показать профиль игрока: баланс, статистика, роль, место в топе")
@@ -8549,6 +8644,8 @@ async def on_ready():
         drops_loop.start()
     if not online_record_loop.is_running():
         online_record_loop.start()
+    if not vdf_recheck_loop.is_running():
+        vdf_recheck_loop.start()
 
 @tree.error
 async def on_tree_error(interaction: discord.Interaction, error):
@@ -9286,7 +9383,7 @@ async def on_message(message: discord.Message):
                             "admin_group":  admin_group,
                         })
 
-                check_num = _save_vdf_check(results, attachment.filename)
+                check_num = _save_vdf_check(results, attachment.filename, attachment.url, message.jump_url)
                 embeds = _build_vdf_embeds(results, attachment.filename)
                 await msg.edit(content=f"✅ Проверено **{len(steamids)}** аккаунтов • Проверка **#{check_num}**\nℹ️ Используй `/checkinfo #{check_num}` или `/checkinfo <steamid>` для подробной информации", embed=embeds[0])
                 for e in embeds[1:]:
