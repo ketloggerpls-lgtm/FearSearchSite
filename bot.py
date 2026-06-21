@@ -8833,6 +8833,19 @@ async def _fetch_fear_profile(session: aiohttp.ClientSession, steamid: str, retr
             await asyncio.sleep(0.3)
     return None
 
+async def _fetch_fear_ban_check(session: aiohttp.ClientSession, steamid: str, retries: int = 2) -> dict | None:
+    """Проверяет бан Fear через /bans/check/{steamid} (более надёжно чем banInfo в profile)."""
+    for attempt in range(retries):
+        try:
+            data = await _fetch_json(session, f"{API_BASE}/bans/check/{steamid}")
+            if data:
+                return data
+        except Exception:
+            pass
+        if attempt < retries - 1:
+            await asyncio.sleep(0.3)
+    return None
+
 async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
     """Проверяет аккаунты через Fear API и Steam API."""
     results = []
@@ -8872,15 +8885,21 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
                 for p in data["response"]["players"]:
                     summary_map[p["steamid"]] = p
 
-        # Fear API — все параллельно (без sleep, быстрее)
+        # Fear API — профили + проверка банов параллельно
         fear_tasks = [_fetch_fear_profile(session, sid) for sid in steamids]
-        fear_profiles = await asyncio.gather(*fear_tasks)
+        fear_ban_tasks = [_fetch_fear_ban_check(session, sid) for sid in steamids]
+        fear_profiles, fear_ban_results = await asyncio.gather(
+            asyncio.gather(*fear_tasks),
+            asyncio.gather(*fear_ban_tasks)
+        )
         fear_map = {sid: profile for sid, profile in zip(steamids, fear_profiles)}
+        fear_ban_map = {sid: ban for sid, ban in zip(steamids, fear_ban_results)}
 
         for sid in steamids:
             steam_ban  = bans_map.get(sid, {})
             summary    = summary_map.get(sid, {})
             fear       = fear_map.get(sid)
+            fear_ban   = fear_ban_map.get(sid)
 
             vac_banned    = steam_ban.get("VACBanned", False)
             vac_days      = steam_ban.get("DaysSinceLastBan", 0)
@@ -8891,6 +8910,7 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
 
             on_fear       = fear is not None
             fear_name     = fear.get("name", "") if fear else ""
+
             ban_info      = fear.get("banInfo", {}) if fear else {}
             fear_banned   = ban_info.get("isBanned", False)
             fear_reason   = ban_info.get("reason", "") if fear_banned else ""
@@ -8902,6 +8922,15 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
                     fear_unban = dt.strftime("%d.%m.%Y %H:%M")
                 except Exception:
                     pass
+
+            if not fear_banned and fear_ban:
+                fb = fear_ban.get("banned", False)
+                if fb:
+                    fear_banned = True
+                    fear_reason = fear_ban.get("reason", "") or "Обход"
+                    unban_str = fear_ban.get("unban_date", "") or fear_ban.get("unban", "")
+                    if unban_str and not fear_unban:
+                        fear_unban = unban_str
 
             ag = fear.get("adminGroup") if fear else None
             admin_group = ""
@@ -9298,12 +9327,17 @@ async def on_message(message: discord.Message):
 
                     # Запускаем Fear API параллельно со Steam + Yooma
                     fear_future = None
+                    fear_ban_future = None
                     if uncached:
                         fear_sem = asyncio.Semaphore(100)
                         async def fetch_with_sem(sid):
                             async with fear_sem:
                                 return await _fetch_fear_profile(session, sid, retries=1)
+                        async def fetch_ban_with_sem(sid):
+                            async with fear_sem:
+                                return await _fetch_fear_ban_check(session, sid, retries=1)
                         fear_future = asyncio.gather(*[fetch_with_sem(sid) for sid in uncached])
+                        fear_ban_future = asyncio.gather(*[fetch_ban_with_sem(sid) for sid in uncached])
 
                     # Ждём Steam API
                     bans_results, summary_results = await steam_future
@@ -9326,18 +9360,24 @@ async def on_message(message: discord.Message):
                     yooma_results_raw = await yooma_future
                     yooma_map = {sid: ydata for sid, ydata in zip(steamids, yooma_results_raw)}
 
+                    fear_ban_map = {}
                     if fear_future:
                         fear_profiles = await fear_future
                         for sid, profile in zip(uncached, fear_profiles):
                             fear_map[sid] = profile
                             if profile:
                                 _vdf_fear_cache[sid] = profile
+                    if fear_ban_future:
+                        fear_ban_results = await fear_ban_future
+                        for sid, ban_data in zip(uncached, fear_ban_results):
+                            fear_ban_map[sid] = ban_data
 
                     # Собираем результаты
                     for sid in steamids:
                         steam_ban  = bans_map.get(sid, {})
                         summary    = summary_map.get(sid, {})
                         fear       = fear_map.get(sid)
+                        fear_ban   = fear_ban_map.get(sid)
 
                         vac_banned    = steam_ban.get("VACBanned", False)
                         vac_days      = steam_ban.get("DaysSinceLastBan", 0)
@@ -9358,6 +9398,15 @@ async def on_message(message: discord.Message):
                                 fear_unban = datetime.fromtimestamp(fear_unban_ts).strftime("%d.%m.%Y %H:%M")
                             except Exception:
                                 pass
+
+                        if not fear_banned and fear_ban:
+                            fb = fear_ban.get("banned", False)
+                            if fb:
+                                fear_banned = True
+                                fear_reason = fear_ban.get("reason", "") or "Обход"
+                                unban_str = fear_ban.get("unban_date", "") or fear_ban.get("unban", "")
+                                if unban_str and not fear_unban:
+                                    fear_unban = unban_str
 
                         ag = fear.get("adminGroup") if fear else None
                         admin_group = ""
