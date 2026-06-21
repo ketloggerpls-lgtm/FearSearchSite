@@ -8639,6 +8639,23 @@ async def on_ready():
     if not vdf_recheck_loop.is_running():
         vdf_recheck_loop.start()
 
+    # ── Автоподключение в войс-канал (микрофон и наушники выключены) ──
+    if VOICE_CHANNEL_ID:
+        try:
+            vc = bot.get_channel(VOICE_CHANNEL_ID)
+            if vc and isinstance(vc, discord.VoiceChannel):
+                if not vc.guild.voice_client or vc.guild.voice_client.channel != vc:
+                    await vc.connect(self_deaf=True, self_mute=True)
+                    _log(f"🔊 Бот вошёл в войс-канал #{vc.name} (self_deaf + self_mute)", discord=False)
+                else:
+                    _log(f"🔊 Бот уже в войс-канале #{vc.name}", discord=False)
+        except Exception as e:
+            _log(f"⚠️ Не удалось войти в войс-канал: {e}", discord=False)
+
+    # Запускаем loop reconnect для войса
+    if not voice_reconnect_loop.is_running():
+        voice_reconnect_loop.start()
+
 @tree.error
 async def on_tree_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.CommandNotFound):
@@ -8651,6 +8668,7 @@ async def on_command_error(ctx, error):
 
 # ── Обработка config.vdf ─────────────────────────────────────────────────────
 VDF_CHANNEL_ID = _env_int("VDF_CHANNEL_ID", 1501060380422701056)
+VOICE_CHANNEL_ID = _env_int("VOICE_CHANNEL_ID", 0)
 DM_CHECKER_ENABLED = _env_bool("DM_CHECKER_ENABLED", True)
 DM_CHECKER_MODE = (os.getenv("DM_CHECKER_MODE") or "public").strip().lower()
 if DM_CHECKER_MODE not in {"off", "whitelist", "public"}:
@@ -10231,6 +10249,33 @@ async def cmd_drops(interaction: discord.Interaction, date: str = ""):
         view.add_item(discord.ui.Button(label="Вчера", style=discord.ButtonStyle.secondary, custom_id=f"drops_{yesterday}"))
 
     await interaction.edit_original_response(content=None, embed=embed)
+
+
+@tasks.loop(minutes=2)
+async def voice_reconnect_loop():
+    """Каждые 2 минуты проверяет, что бот в войс-канале, и переподключается при необходимости."""
+    if not VOICE_CHANNEL_ID:
+        return
+    try:
+        vc = bot.get_channel(VOICE_CHANNEL_ID)
+        if not vc or not isinstance(vc, discord.VoiceChannel):
+            return
+        guild = vc.guild
+        if guild.voice_client is None or guild.voice_client.channel != vc:
+            if guild.voice_client:
+                try:
+                    await guild.voice_client.disconnect(force=True)
+                except Exception:
+                    pass
+            await vc.connect(self_deaf=True, self_mute=True)
+            _log(f"🔊 [VOICE] Переподключился в #{vc.name}", discord=False)
+    except Exception as e:
+        _log(f"⚠️ [VOICE] Ошибка: {e}", discord=False)
+
+
+@voice_reconnect_loop.before_loop
+async def before_voice_reconnect():
+    await bot.wait_until_ready()
 
 
 def _cancel_pending_tasks():
