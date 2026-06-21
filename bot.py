@@ -4881,6 +4881,16 @@ def _load_vdf_checks():
         _vdf_check_counter = 0
         _vdf_checks = {}
 
+    # Синхронизация с БД: берём максимальный check_id из vdf_history
+    if _db.db_is_available():
+        try:
+            db_max = _db.db_get_max_vdf_check_id()
+            if db_max > _vdf_check_counter:
+                _vdf_check_counter = db_max
+                print(f"📂 Счётчик VDF синхронизирован с БД: #{_vdf_check_counter}")
+        except Exception as e:
+            print(f"⚠️ Ошибка синхронизации счётчика VDF из БД: {e}")
+
 
 def _save_vdf_checks_to_file():
     try:

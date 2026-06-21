@@ -240,6 +240,8 @@ def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: st
         return False
     try:
         with conn.cursor() as cur:
+            if check_id > 0:
+                cur.execute("DELETE FROM vdf_history WHERE check_id = %s", (check_id,))
             for r in results:
                 cur.execute("""
                     INSERT INTO vdf_history
@@ -267,6 +269,20 @@ def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: st
     except Exception as e:
         logger.error(f"[DB] Ошибка сохранения vdf_history: {e}")
         return False
+
+
+def db_get_max_vdf_check_id() -> int:
+    """Получить максимальный check_id из vdf_history."""
+    conn = _get_conn()
+    if not conn:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(MAX(check_id), 0) FROM vdf_history")
+            row = cur.fetchone()
+            return row[0] if row else 0
+    except Exception:
+        return 0
 
 
 def db_get_vdf_history(limit: int = 100) -> list[dict]:
