@@ -8879,6 +8879,23 @@ async def _fetch_fear_profile(session: aiohttp.ClientSession, steamid: str, retr
             await asyncio.sleep(0.3)
     return None
 
+
+async def _fetch_fear_fast(session: aiohttp.ClientSession, steamid: str) -> dict | None:
+    """Быстрый запрос Fear API для VDF-проверок: таймаут 8с, 1 попытка."""
+    url = f"{API_BASE}/profile/{steamid}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with session.get(url, headers=headers, timeout=timeout) as r:
+            if r.status == 200:
+                return await r.json(content_type=None)
+    except Exception:
+        pass
+    return None
+
 async def _fetch_fear_ban_check(session: aiohttp.ClientSession, steamid: str, retries: int = 2) -> dict | None:
     """Проверяет бан Fear через /bans/check/{steamid} (более надёжно чем banInfo в profile)."""
     for attempt in range(retries):
@@ -8932,7 +8949,7 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
                     summary_map[p["steamid"]] = p
 
         # Fear API — только профиль (banInfo = 100% ответ)
-        fear_tasks = [_fetch_fear_profile(session, sid) for sid in steamids]
+        fear_tasks = [_fetch_fear_fast(session, sid) for sid in steamids]
         fear_profiles = await asyncio.gather(*fear_tasks)
         fear_map = {sid: profile for sid, profile in zip(steamids, fear_profiles)}
 
@@ -9331,7 +9348,7 @@ async def on_message(message: discord.Message):
                     fear_sem = asyncio.Semaphore(50)
                     async def fetch_with_sem(sid):
                         async with fear_sem:
-                            return await _fetch_fear_profile(session, sid, retries=1)
+                            return await _fetch_fear_fast(session, sid)
 
                     fear_future = asyncio.gather(*[fetch_with_sem(sid) for sid in steamids])
 
