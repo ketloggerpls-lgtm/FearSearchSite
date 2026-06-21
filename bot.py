@@ -4904,6 +4904,15 @@ def _save_vdf_checks_to_file():
 
 def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = "", message_url: str = "", vdf_text: str = "") -> int:
     global _vdf_check_counter
+
+    # Синхронизация с БД перед выдачей нового ID
+    try:
+        db_max = _db.db_get_max_vdf_check_id()
+        if db_max >= _vdf_check_counter:
+            _vdf_check_counter = db_max
+    except Exception:
+        pass
+
     _vdf_check_counter += 1
     check_id = _vdf_check_counter
     _vdf_checks[check_id] = {
