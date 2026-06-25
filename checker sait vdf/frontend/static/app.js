@@ -7,9 +7,16 @@ const loader = document.getElementById('loader');
 const resultsModal = document.getElementById('resultsModal');
 const errorMessage = document.getElementById('errorMessage');
 const cardsGrid = document.getElementById('cardsGrid');
+const loaderStage = document.getElementById('loaderStage');
+const loaderProgress = document.getElementById('loaderProgress');
+const progressBar = document.getElementById('progressBar');
+const saveBanner = document.getElementById('saveBanner');
 
 dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -28,17 +35,18 @@ function setStage(id, state) {
     el.className = 'stage ' + state;
 }
 
+function resetStages() {
+    ['parse', 'steam', 'fear', 'yooma', 'done'].forEach(id => setStage(id, 'waiting'));
+}
+
 function updateLoader(text, current, total) {
-    const stageEl = document.querySelector('.loader-stage');
-    const progEl = document.getElementById('loaderProgress');
-    const barEl = document.getElementById('progressBar');
-    if (stageEl) stageEl.textContent = text;
-    if (progEl && total) progEl.textContent = current + ' / ' + total;
-    if (barEl && total) barEl.style.width = Math.round((current / total) * 100) + '%';
+    if (loaderStage) loaderStage.textContent = text;
+    if (loaderProgress && total) loaderProgress.textContent = current + ' / ' + total;
+    if (progressBar && total) progressBar.style.width = Math.round((current / total) * 100) + '%';
 }
 
 function formatDate(ts) {
-    if (!ts) return 'навсегда';
+    if (!ts || ts <= 0) return 'навсегда';
     try {
         const d = new Date(ts * 1000);
         return d.toLocaleDateString('ru-RU');
@@ -46,7 +54,7 @@ function formatDate(ts) {
 }
 
 function daysLeft(ts) {
-    if (!ts) return null;
+    if (!ts || ts <= 0) return null;
     try {
         const now = Date.now() / 1000;
         const left = Math.ceil((ts - now) / 86400);
@@ -74,6 +82,7 @@ async function processFiles(files) {
     if (!hasVdf) { showError('Файлы .vdf не найдены'); return; }
 
     showLoader();
+    resetStages();
     setStage('parse', 'active');
     setStage('steam', 'waiting');
     setStage('fear', 'waiting');
@@ -82,34 +91,20 @@ async function processFiles(files) {
     updateLoader('Читаем VDF файл...', 0, 0);
 
     try {
-        const parseRes = await fetch(API_BASE + '/api/parse-vdf', { method: 'POST', body: formData });
-        if (!parseRes.ok) throw new Error('Ошибка парсинга: ' + parseRes.status);
-        const parseData = await parseRes.json();
-
-        if (!parseData.unique_ids) {
-            hideLoader();
-            showError('SteamID не найдены в файле');
-            return;
-        }
-
-        const total = parseData.unique_ids;
-        updateLoader('Найдено ' + total + ' аккаунтов. Проверяем...', 0, total);
-
         setStage('parse', 'done');
         setStage('steam', 'active');
         setStage('fear', 'active');
         setStage('yooma', 'active');
-        updateLoader('Проверяем Steam + Fear + Yooma...', 0, total);
+        updateLoader('Проверяем Steam + Fear + Yooma...', 0, 0);
 
-        const checkRes = await fetch(API_BASE + '/api/check-all', {
+        const checkRes = await fetch(API_BASE + '/api/check-vdf', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ steamids: parseData.steamids })
+            body: formData
         });
 
         if (!checkRes.ok) {
             const errText = await checkRes.text();
-            throw new Error('Ошибка проверки: ' + checkRes.status);
+            throw new Error('Ошибка проверки: ' + checkRes.status + ' ' + errText);
         }
 
         const data = await checkRes.json();
@@ -118,14 +113,14 @@ async function processFiles(files) {
         setStage('fear', 'done');
         setStage('yooma', 'done');
         setStage('done', 'active');
-        updateLoader('Готово! Загружаем результаты...', total, total);
+        updateLoader('Готово! Загружаем результаты...', data.total || data.results.length, data.total || data.results.length);
         await new Promise(r => setTimeout(r, 400));
 
         hideLoader();
         if (!data.results || !Array.isArray(data.results)) {
             throw new Error('Неверный ответ сервера');
         }
-        showResults(data.results);
+        showResults(data.results, data.check_id, data.saved);
 
     } catch (err) {
         console.error(err);
@@ -134,7 +129,7 @@ async function processFiles(files) {
     }
 }
 
-function showResults(results) {
+function showResults(results, checkId, saved) {
     try {
         results.sort((a, b) => getScore(b) - getScore(a));
 
@@ -150,7 +145,16 @@ function showResults(results) {
 
         cardsGrid.innerHTML = results.map((r, i) => makeCard(r, i)).join('');
 
-        // Показываем модалку
+        if (saved && checkId) {
+            saveBanner.textContent = `Результат сохранён в историю VDF #${checkId}`;
+            saveBanner.style.display = 'block';
+        } else if (checkId) {
+            saveBanner.textContent = `Проверка #${checkId} (сохранение недоступно)`;
+            saveBanner.style.display = 'block';
+        } else {
+            saveBanner.style.display = 'none';
+        }
+
         resultsModal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
 
@@ -245,14 +249,17 @@ function makeCard(r, idx) {
 function showLoader() {
     uploadPage.style.display = 'none';
     resultsModal.style.display = 'none';
+    loader.classList.remove('hidden');
     loader.style.display = 'flex';
-    document.body.style.overflow = '';
+    document.body.style.overflow = 'hidden';
 }
 function hideLoader() {
+    loader.classList.add('hidden');
     loader.style.display = 'none';
 }
 function resetPage() {
-    uploadPage.style.display = 'flex';
+    uploadPage.style.display = 'block';
+    loader.classList.add('hidden');
     loader.style.display = 'none';
     resultsModal.style.display = 'none';
     fileInput.value = '';
@@ -273,14 +280,12 @@ function esc(t) {
     return d.innerHTML;
 }
 
-// Закрытие по Escape
+// Close on Escape / overlay click
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && resultsModal.style.display === 'flex') {
         resetPage();
     }
 });
-
-// Закрытие по клику на оверлей
 resultsModal.addEventListener('click', (e) => {
     if (e.target === resultsModal) {
         resetPage();
