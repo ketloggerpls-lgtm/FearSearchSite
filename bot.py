@@ -6983,6 +6983,13 @@ async def reports_loop():
 
     result = await _fetch_reports()
 
+    # Сохраняем в БД для панели (обогащение игроков)
+    if result and isinstance(result, list):
+        try:
+            _db.db_upsert_reports(result)
+        except Exception as e:
+            _log(f"⚠️ Ошибка сохранения репортов в БД: {e}", discord=False)
+
     # Токен устарел — уведомляем в специальный канал с пингом роли
     if result == "token_expired":
         _log("⚠️ Fear куки устарели!")

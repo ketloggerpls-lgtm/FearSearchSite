@@ -69,7 +69,7 @@ type vdfResult struct {
 }
 
 func (r vdfResult) isBanned() bool {
-	if r.FearBanned || r.VacBanned || r.CommunityBan || r.GameBans > 0 {
+	if r.FearBanned {
 		return true
 	}
 	if r.YoomaData == nil {
@@ -243,12 +243,6 @@ func (h *EvadersHandler) computeEvadersFromHistory(history []map[string]interfac
 			if fb, ok := entry["fear_banned"].(bool); ok && fb {
 				isBanned = true
 			}
-			if vb, ok := entry["vac_banned"].(bool); ok && vb {
-				isBanned = true
-			}
-			if gb, ok := entry["game_bans"].(float64); ok && gb > 0 {
-				isBanned = true
-			}
 			if yb, ok := entry["yooma_banned"].(bool); ok && yb {
 				isBanned = true
 			}
@@ -266,12 +260,6 @@ func (h *EvadersHandler) computeEvadersFromHistory(history []map[string]interfac
 					unban, _ := entry["fear_unban_time"].(string)
 					fearDetail = &BanSourceDetail{Reason: reason, UnbanDate: unban}
 				}
-				if vb, _ := entry["vac_banned"].(bool); vb {
-					parts = append(parts, "VAC")
-				}
-				if gb, _ := entry["game_bans"].(float64); gb > 0 {
-					parts = append(parts, fmt.Sprintf("Game Ban (×%d)", int(gb)))
-				}
 				if yb, _ := entry["yooma_banned"].(bool); yb {
 					reason, _ := entry["yooma_reason"].(string)
 					if reason == "" {
@@ -285,12 +273,10 @@ func (h *EvadersHandler) computeEvadersFromHistory(history []map[string]interfac
 				}
 				nickname, _ := entry["nickname"].(string)
 				bannedDetails = append(bannedDetails, BannedDetail{
-					SteamID: sid,
-					Name:    nickname,
-					Bans:    banStr,
-					FearBan: fearDetail,
-					VacBan:  mustBool(entry["vac_banned"]),
-					GameBans: mustInt(entry["game_bans"]),
+					SteamID:  sid,
+					Name:     nickname,
+					Bans:     banStr,
+					FearBan:  fearDetail,
 					YoomaBan: extractYoomaDetail(entry),
 				})
 			}
@@ -461,15 +447,6 @@ func detectBanReason(r vdfResult) string {
 			return r.FearReason
 		}
 		return "Fear Ban"
-	}
-	if r.VacBanned {
-		return "VAC Ban"
-	}
-	if r.CommunityBan {
-		return "Community Ban"
-	}
-	if r.GameBans > 0 {
-		return "Game Ban"
 	}
 	if r.YoomaData != nil {
 		if found, ok := r.YoomaData["found"].(bool); ok && found {

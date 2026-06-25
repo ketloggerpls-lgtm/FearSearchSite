@@ -995,7 +995,43 @@ func (h *FearAPIHandler) GetResolveNames(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+		"success":  true,
 		"profiles": result,
+	})
+}
+
+func (h *FearAPIHandler) GetPlayersEnrich(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, `{"error":"database not available"}`, http.StatusInternalServerError)
+		return
+	}
+	idsParam := r.URL.Query().Get("steamids")
+	if idsParam == "" {
+		http.Error(w, `{"error":"steamids required"}`, http.StatusBadRequest)
+		return
+	}
+	ids := strings.Split(idsParam, ",")
+	unique := make([]string, 0, len(ids))
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	if len(unique) > 200 {
+		unique = unique[:200]
+	}
+
+	data, err := h.db.GetPlayersEnrich(unique)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    data,
 	})
 }

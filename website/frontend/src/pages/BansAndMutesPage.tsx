@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Search, AlertTriangle, Clock, ShieldX, RefreshCw, Users, ExternalLink, TrendingUp, Scissors, Ban } from 'lucide-react';
+import { Search, AlertTriangle, Clock, ShieldX, RefreshCw, Users, TrendingUp, Scissors, Ban } from 'lucide-react';
 import { api } from '../services/api';
 import type { Punishment } from '../types';
 
-type Tab = 'bans' | 'mutes';
+type Tab = 'all' | 'bans' | 'mutes';
+type StatusFilter = 'all' | 'active' | 'removed' | 'expired';
 
 function durStr(dur?: number): string {
   if (dur == null) return '—';
@@ -33,62 +34,75 @@ interface StaffSummary {
   total: number;
 }
 
+const statusOptions: { key: StatusFilter; label: string; color: string }[] = [
+  { key: 'all', label: 'Все', color: 'text-gray-400 bg-white/5' },
+  { key: 'active', label: 'Активны', color: 'text-red-400 bg-red-400/10' },
+  { key: 'removed', label: 'Сняты', color: 'text-emerald-400 bg-emerald-400/10' },
+  { key: 'expired', label: 'Истёкшие', color: 'text-gray-400 bg-gray-400/10' },
+];
+
+const statusMap: Record<number, { label: string; color: string }> = {
+  1: { label: 'Активен', color: 'text-red-400 bg-red-400/10' },
+  2: { label: 'Снят', color: 'text-emerald-400 bg-emerald-400/10' },
+  4: { label: 'Истёк', color: 'text-gray-400 bg-gray-400/10' },
+};
+
 export default function BansAndMutesPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('bans');
+  const [activeTab, setActiveTab] = useState<Tab>('all');
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [filterAdmin, setFilterAdmin] = useState('');
   const [loading, setLoading] = useState(false);
   const [punishments, setPunishments] = useState<Punishment[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [staffSteamIds, setStaffSteamIds] = useState<Set<string>>(new Set());
   const [profiles, setProfiles] = useState<ProfileMap>({});
-  const [filterAdmin, setFilterAdmin] = useState('');
   const [staffSearch, setStaffSearch] = useState('');
   const [staffSummary, setStaffSummary] = useState<StaffSummary | null>(null);
   const [staffSearching, setStaffSearching] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   useEffect(() => {
-    api.getStaff()
-      .then((res) => {
-        const list = (res?.data || res?.staff || (Array.isArray(res) ? res : [])) as any[];
-        const ids = new Set<string>();
-        for (const s of list) {
-          const sid = s.steam_id || s.steamid;
-          if (sid) ids.add(sid);
-        }
-        setStaffSteamIds(ids);
-      })
-      .catch(() => {});
-  }, []);
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const statusParam = useMemo(() => {
+    switch (statusFilter) {
+      case 'active': return 1;
+      case 'removed': return 2;
+      case 'expired': return 4;
+      default: return 0;
+    }
+  }, [statusFilter]);
+
+  const typeParam = useMemo(() => {
+    switch (activeTab) {
+      case 'bans': return 1;
+      case 'mutes': return 2;
+      default: return 0;
+    }
+  }, [activeTab]);
 
   const fetchPunishments = useCallback(async () => {
     setLoading(true);
     try {
-      const type = activeTab === 'bans' ? 1 : 2;
-      let items: Punishment[] = [];
-
-      if (staffSearch) {
-        const res = await api.getPunishmentsByAdminPG(staffSearch, type, 5000);
-        items = res.punishments || [];
-      } else {
-        const res = await api.getStaffPunishments({ type, limit: 5000 });
-        items = res.punishments || [];
-      }
-
-      if (staffSteamIds.size > 0) {
-        items = items.filter((p) => staffSteamIds.has(p.admin_steamid));
-      }
-
+      const res = await api.getStaffPunishments({
+        type: typeParam,
+        status: statusParam,
+        search: debouncedSearch,
+        limit: 5000,
+      });
+      const items: Punishment[] = res.punishments || [];
       items.sort((a: any, b: any) => (b.created || 0) - (a.created || 0));
       setPunishments(items);
-      setTotal(items.length);
+      setTotal(res.total || items.length);
       setLastRefresh(new Date());
 
       const idsToResolve = new Set<string>();
       for (const p of items) {
-        if (p.steamid && !profiles[p.steamid]) idsToResolve.add(p.steamid);
-        if (p.admin_steamid && !profiles[p.admin_steamid]) idsToResolve.add(p.admin_steamid);
+        if (p.steamid && !p.name && !profiles[p.steamid]) idsToResolve.add(p.steamid);
+        if (p.admin_steamid && !p.admin_name && !profiles[p.admin_steamid]) idsToResolve.add(p.admin_steamid);
       }
       if (idsToResolve.size > 0) {
         try {
@@ -104,15 +118,39 @@ export default function BansAndMutesPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, search, staffSteamIds, staffSearch]);
+  }, [typeParam, statusParam, debouncedSearch]);
 
   useEffect(() => {
     fetchPunishments();
-    const interval = setInterval(fetchPunishments, 60000);
+    const interval = setInterval(fetchPunishments, 120000);
     return () => clearInterval(interval);
   }, [fetchPunishments]);
 
-  useEffect(() => { setPage(1); }, [activeTab, search, staffSearch]);
+  useEffect(() => { setPage(1); }, [activeTab, debouncedSearch, statusFilter, filterAdmin]);
+
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
+
+  const uniqueAdmins = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of punishments) {
+      if (p.admin_steamid && !map.has(p.admin_steamid)) {
+        const name = p.admin_name || profiles[p.admin_steamid]?.name || p.admin_steamid;
+        map.set(p.admin_steamid, name);
+      }
+    }
+    return map;
+  }, [punishments, profiles]);
+
+  const filteredPunishments = useMemo(() => {
+    if (!filterAdmin) return punishments;
+    return punishments.filter(p => p.admin_steamid === filterAdmin);
+  }, [punishments, filterAdmin]);
+
+  const pagedPunishments = useMemo(() => {
+    return filteredPunishments.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredPunishments, page]);
+  const pageCount = Math.max(1, Math.ceil(filteredPunishments.length / pageSize));
 
   const handleStaffSearch = async () => {
     if (!staffSearch.trim()) {
@@ -143,12 +181,7 @@ export default function BansAndMutesPage() {
   };
 
   const getStatusLabel = (status: number) => {
-    switch (status) {
-      case 1: return { label: 'Активен', color: 'text-red-400 bg-red-400/10' };
-      case 2: return { label: 'Снят', color: 'text-emerald-400 bg-emerald-400/10' };
-      case 4: return { label: 'Истёк', color: 'text-gray-400 bg-gray-400/10' };
-      default: return { label: 'Неизвестно', color: 'text-gray-400 bg-gray-400/10' };
-    }
+    return statusMap[status] || { label: 'Неизвестно', color: 'text-gray-400 bg-gray-400/10' };
   };
 
   const getProfileName = (steamid: string, fallback?: string) => {
@@ -163,24 +196,13 @@ export default function BansAndMutesPage() {
     return profiles[steamid]?.avatar || '';
   };
 
-  const displayPunishments = filterAdmin
-    ? punishments.filter(p => p.admin_steamid === filterAdmin)
-    : punishments;
-
-  const uniqueAdmins = new Map<string, string>();
-  for (const p of punishments) {
-    if (p.admin_steamid && !uniqueAdmins.has(p.admin_steamid)) {
-      uniqueAdmins.set(p.admin_steamid, getProfileName(p.admin_steamid, p.admin_name) || p.admin_steamid);
-    }
-  }
-
   return (
     <div className="max-w-[1100px] mx-auto">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Наказания</h1>
           <p className="text-sm text-[#8a8a93] mt-1">
-            Только от стаффа • Найдено: {displayPunishments.length} • Обновлено: {lastRefresh.toLocaleTimeString('ru-RU')}
+            {activeTab === 'all' ? 'Все наказания' : activeTab === 'bans' ? 'Баны' : 'Муты'} • Найдено: {filteredPunishments.length} • Обновлено: {lastRefresh.toLocaleTimeString('ru-RU')}
           </p>
         </div>
         <button onClick={() => { setLoading(true); fetchPunishments(); }}
@@ -194,7 +216,7 @@ export default function BansAndMutesPage() {
         className="bg-[#12151e] rounded-xl border border-white/5 p-4 mb-4">
         <div className="flex gap-3 items-center">
           <Search className="w-4 h-4 text-gray-500 flex-shrink-0" />
-          <input type="text" placeholder="Поиск по SteamID стаффа (например: 76561198...)"
+          <input type="text" placeholder="Поиск по SteamID администратора (например: 76561198...)"
             value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleStaffSearch()}
             className="flex-1 px-4 py-2.5 bg-[#0c0e14] border border-white/5 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/30 transition-all" />
@@ -236,6 +258,10 @@ export default function BansAndMutesPage() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
         className="bg-[#12151e] rounded-xl border border-white/5 p-4 mb-6">
         <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <button onClick={() => setActiveTab('all')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'all' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-[#1a1f2e] text-gray-400 border border-white/5 hover:text-white'}`}>
+            <Ban className="w-4 h-4" />Все
+          </button>
           <button onClick={() => setActiveTab('bans')}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'bans' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-[#1a1f2e] text-gray-400 border border-white/5 hover:text-white'}`}>
             <ShieldX className="w-4 h-4" />Баны
@@ -244,9 +270,13 @@ export default function BansAndMutesPage() {
             className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'mutes' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-[#1a1f2e] text-gray-400 border border-white/5 hover:text-white'}`}>
             <AlertTriangle className="w-4 h-4" />Муты
           </button>
-          <span className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f2e] border border-white/5 rounded-lg text-xs text-gray-500">
-            <Users className="w-3 h-3" />Только стафф
-          </span>
+          <div className="h-6 w-px bg-white/10 mx-1" />
+          {statusOptions.map(s => (
+            <button key={s.key} onClick={() => setStatusFilter(s.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${statusFilter === s.key ? s.color + ' border-current' : 'bg-[#1a1f2e] text-gray-400 border-white/5 hover:text-white'}`}>
+              {s.label}
+            </button>
+          ))}
           {uniqueAdmins.size > 0 && (
             <select value={filterAdmin} onChange={e => setFilterAdmin(e.target.value)}
               className="px-3 py-2 bg-[#1a1f2e] border border-white/5 rounded-lg text-xs text-gray-400 focus:outline-none cursor-pointer">
@@ -274,18 +304,24 @@ export default function BansAndMutesPage() {
           <div className="flex items-center justify-center py-12">
             <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
           </div>
-        ) : displayPunishments.length > 0 ? (
-          <div className="divide-y divide-white/[0.03] max-h-[calc(100vh-400px)] overflow-y-auto">
-            {displayPunishments.map((p, i) => {
+        ) : pagedPunishments.length > 0 ? (
+          <div className="divide-y divide-white/[0.03] max-h-[calc(100vh-420px)] overflow-y-auto">
+            {pagedPunishments.map((p, i) => {
               const statusInfo = getStatusLabel(p.status);
-              const playerName = getProfileName(p.steamid, (p as any).name);
+              const playerName = p.name || getProfileName(p.steamid);
               const playerAvatar = getProfileAvatar(p.steamid);
-              const adminName = getProfileName(p.admin_steamid, p.admin_name);
+              const adminName = p.admin_name || getProfileName(p.admin_steamid, p.admin);
               const adminAvatar = getProfileAvatar(p.admin_steamid);
+              const rowNum = (page - 1) * pageSize + i + 1;
+              const date = p.created
+                ? new Date(p.created * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+                : p.time
+                  ? new Date(p.time).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+                  : '—';
               return (
                 <motion.div key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.02, 0.5) }}
                   className="grid grid-cols-[40px_1fr_1fr_1fr_120px_80px_80px_100px] gap-3 px-4 py-3 hover:bg-[#161a25] transition-colors items-center">
-                  <span className="text-sm text-gray-600">{i + 1}</span>
+                  <span className="text-sm text-gray-600">{rowNum}</span>
                   <div className="flex items-center gap-2 min-w-0">
                     {playerAvatar ? (
                       <img src={playerAvatar} alt="" className="w-7 h-7 rounded-lg object-cover ring-1 ring-white/10 flex-shrink-0" />
@@ -303,7 +339,7 @@ export default function BansAndMutesPage() {
                     </div>
                   </div>
                   <span className="text-xs text-gray-400 font-mono truncate">{p.steamid}</span>
-                  <span className="text-sm text-gray-300 truncate">{shortReason(p.reason)}</span>
+                  <span className="text-sm text-gray-300 truncate" title={p.reason}>{shortReason(p.reason)}</span>
                   <div className="flex items-center gap-2 min-w-0">
                     {adminAvatar ? (
                       <img src={adminAvatar} alt="" className="w-5 h-5 rounded object-cover ring-1 ring-white/10 flex-shrink-0" />
@@ -317,16 +353,25 @@ export default function BansAndMutesPage() {
                   </div>
                   <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${statusInfo.color}`}>{statusInfo.label}</span>
                   <span className="text-xs text-gray-400"><Clock className="w-3 h-3 inline mr-1" />{durStr(p.duration)}</span>
-                  <span className="text-xs text-gray-500">
-                    {p.time ? new Date(p.time).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
-                      : p.created ? new Date(p.created * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                  </span>
+                  <span className="text-xs text-gray-500">{date}</span>
                 </motion.div>
               );
             })}
           </div>
         ) : (
           <div className="text-center py-12"><p className="text-gray-500">Наказания не найдены</p></div>
+        )}
+
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-white/5 text-xs text-gray-400">
+            <span>Страница {page} из {pageCount}</span>
+            <div className="flex gap-2">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                className="px-3 py-1.5 bg-[#1a1f2e] border border-white/5 rounded-lg hover:text-white disabled:opacity-40 disabled:cursor-not-allowed">Назад</button>
+              <button disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}
+                className="px-3 py-1.5 bg-[#1a1f2e] border border-white/5 rounded-lg hover:text-white disabled:opacity-40 disabled:cursor-not-allowed">Вперёд</button>
+            </div>
+          </div>
         )}
       </motion.div>
     </div>

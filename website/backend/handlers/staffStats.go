@@ -225,13 +225,16 @@ func (h *StaffStatsHandler) GetPunishmentsList(w http.ResponseWriter, r *http.Re
 	}
 
 	ptype, _ := strconv.Atoi(r.URL.Query().Get("type"))
+	status, _ := strconv.Atoi(r.URL.Query().Get("status"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	adminSteamID := r.URL.Query().Get("admin_steamid")
+	search := r.URL.Query().Get("search")
 	if limit <= 0 {
 		limit = 50
 	}
 
-	punishments, err := h.db.GetPunishmentsList(ptype, limit, offset)
+	punishments, err := h.db.GetPunishmentsList(ptype, limit, offset, status, adminSteamID, search)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return

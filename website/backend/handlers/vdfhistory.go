@@ -34,6 +34,7 @@ type VDFHistoryItem struct {
 	FearBanned   bool   `json:"fear_banned"`
 	FearReason   string `json:"fear_reason"`
 	FearUnban    string `json:"fear_unban_time"`
+	OnFear       bool   `json:"on_fear"`
 	VacBanned    bool   `json:"vac_banned"`
 	VacDaysAgo   int    `json:"vac_days_ago"`
 	GameBans     int    `json:"game_bans"`
@@ -238,6 +239,7 @@ func (h *VDFHistoryHandler) computeHistory() ([]VDFCheckHistory, error) {
 				FearBanned:   r.FearBanned,
 				FearReason:   r.FearReason,
 				FearUnban:    r.FearUnban,
+				OnFear:       false,
 				VacBanned:    r.VacBanned,
 				GameBans:     r.GameBans,
 				CommunityBan: r.CommunityBan,
@@ -320,6 +322,7 @@ func (h *VDFHistoryHandler) buildHistoryFromDB(rows []map[string]interface{}) []
 			FearBanned:  mustBool(row["fear_banned"]),
 			FearReason:  mustString(row["fear_reason"]),
 			FearUnban:   mustString(row["fear_unban_time"]),
+			OnFear:      mustBool(row["on_fear"]),
 			VacBanned:   mustBool(row["vac_banned"]),
 			GameBans:    mustInt(row["game_bans"]),
 			YoomaBanned: mustBool(row["yooma_banned"]),
@@ -429,4 +432,36 @@ func (h *VDFHistoryHandler) GetRecheckResult(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (h *VDFHistoryHandler) DownloadVDF(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, `{"error":"database not available"}`, http.StatusInternalServerError)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		idStr = r.URL.Query().Get("id")
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+
+	filename, content, err := h.db.GetVDFContentByCheckID(id)
+	if err != nil || content == "" {
+		http.Error(w, `{"error":"vdf not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	w.Write([]byte(content))
 }

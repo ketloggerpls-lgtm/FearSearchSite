@@ -1,20 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Crown, Users, Search, Lock, Monitor, X } from 'lucide-react';
+import { Crown, Users, Search, Lock, Monitor, X, Globe, MapPin, Smartphone } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import type { AdminUser } from '../types';
 
 const OWNER_DISCORD_ID = '1500235583367417866';
 
-const LEVEL_OPTIONS = [
+const DEFAULT_LEVEL_OPTIONS = [
   { value: -1, label: 'Заблокирован', color: 'text-red-400' },
-  { value: 1, label: 'LVL 1 — Админ', color: 'text-emerald-400' },
+  { value: 1, label: 'LVL 1 — Администратор', color: 'text-emerald-400' },
   { value: 2, label: 'LVL 2 — Модератор', color: 'text-purple-400' },
-  { value: 3, label: 'LVL 3 — Ст.Модер', color: 'text-blue-400' },
-  { value: 4, label: 'LVL 4 — Ст.Админ', color: 'text-orange-400' },
+  { value: 3, label: 'LVL 3 — Ст. Модератор', color: 'text-blue-400' },
+  { value: 4, label: 'LVL 4 — Администратор', color: 'text-orange-400' },
   { value: 5, label: 'LVL 5 — Владелец', color: 'text-yellow-400' },
 ];
+
+interface RoleItem {
+  key: string;
+  name: string;
+  level: number;
+  role_id?: string;
+}
+
+function buildLevelOptions(roles: RoleItem[]) {
+  if (!roles || roles.length === 0) return DEFAULT_LEVEL_OPTIONS;
+  const grouped = new Map<number, string[]>();
+  for (const r of roles) {
+    if (r.level < 1) continue;
+    if (!grouped.has(r.level)) grouped.set(r.level, []);
+    grouped.get(r.level)!.push(r.name);
+  }
+  const options = [{ value: -1, label: 'Заблокирован', color: 'text-red-400' }];
+  for (let lvl = 1; lvl <= 5; lvl++) {
+    const names = grouped.get(lvl) || [];
+    const defaultLabel = DEFAULT_LEVEL_OPTIONS.find(o => o.value === lvl)?.label || `LVL ${lvl}`;
+    const label = names.length > 0 ? `LVL ${lvl} — ${names.join(' / ')}` : defaultLabel;
+    const color = DEFAULT_LEVEL_OPTIONS.find(o => o.value === lvl)?.color || 'text-gray-400';
+    options.push({ value: lvl, label, color });
+  }
+  return options;
+}
 
 const GROUP_MAP: Record<number, string> = {
   '-1': 'UNDEFINED',
@@ -44,6 +70,8 @@ export default function AdminPanelPage() {
   const [sessionsUser, setSessionsUser] = useState<AdminUser | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [roles, setRoles] = useState<RoleItem[]>([]);
+  const LEVEL_OPTIONS = useMemo(() => buildLevelOptions(roles), [roles]);
 
   const fetchUsers = async () => {
     try {
@@ -59,6 +87,9 @@ export default function AdminPanelPage() {
 
   useEffect(() => {
     fetchUsers();
+    api.getRoles()
+      .then((res: any) => setRoles(res.roles || res.data || []))
+      .catch(() => setRoles([]));
   }, []);
 
   const handleLevelChange = async (discordId: string, newLevel: number) => {
@@ -150,10 +181,10 @@ export default function AdminPanelPage() {
       >
         <div className="flex items-center gap-3 mb-1">
           <Crown className="w-8 h-8 text-yellow-400" />
-          <h1 className="text-3xl font-bold text-white">Панель Управления</h1>
+          <h1 className="text-3xl font-bold text-white">Пользователи</h1>
         </div>
         <p className="text-base text-[#8a8a93]">
-          Только для LVL 5 — Управление пользователями и уровнями доступа
+          Управление уровнями доступа и сессиями
         </p>
       </motion.div>
 
@@ -400,15 +431,33 @@ export default function AdminPanelPage() {
                           <div className="flex items-center gap-2 min-w-0">
                             <Monitor className="w-4 h-4 text-blue-400 flex-shrink-0" />
                             <span className="text-sm font-medium text-white truncate">
-                              {session.user_agent || 'Неизвестное устройство'}
+                              {session.browser || session.os || 'Неизвестное устройство'}
                             </span>
+                            {session.os && (
+                              <span className="text-xs text-gray-500">({session.os})</span>
+                            )}
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
                             {session.logged_in_at ? new Date(session.logged_in_at).toLocaleString('ru-RU') : '—'}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-400 font-mono">
-                          IP: {session.ip_address || '—'}
+                        <div className="flex flex-wrap gap-3 text-sm text-gray-400">
+                          <span className="flex items-center gap-1.5">
+                            <Smartphone className="w-3.5 h-3.5 text-gray-500" />
+                            IP: <span className="font-mono text-gray-300">{session.ip_address || '—'}</span>
+                          </span>
+                          {(session.country || session.city) && (
+                            <span className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-gray-500" />
+                              {[session.city, session.country].filter(Boolean).join(', ')}
+                            </span>
+                          )}
+                          {session.steam_id && (
+                            <span className="flex items-center gap-1.5">
+                              <Globe className="w-3.5 h-3.5 text-gray-500" />
+                              SteamID: <span className="font-mono text-gray-300">{session.steam_id}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}

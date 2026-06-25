@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"fearstaff-api/config"
@@ -107,6 +108,27 @@ func (h *AdminHandler) GetUserSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+	for i := range sessions {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			s := sessions[idx]
+			ua, _ := s["user_agent"].(string)
+			ip, _ := s["ip_address"].(string)
+			browser, os := parseUserAgent(ua)
+			country, city := getIPGeo(ip)
+			s["browser"] = browser
+			s["os"] = os
+			s["country"] = country
+			s["city"] = city
+		}(i)
+	}
+	wg.Wait()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

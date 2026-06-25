@@ -33,23 +33,19 @@ const navSections: { title: string; items: NavItem[] }[] = [
   {
     title: 'МОНИТОРИНГ',
     items: [
-      { path: '/leaderboard', label: 'Топ-1000', icon: BarChart3, minLevel: 1, color: 'violet' },
-      { path: '/bans-mutes', label: 'Баны и муты', icon: Ban, minLevel: 1, color: 'rose' },
-      { path: '/staff-stats', label: 'Статистика', icon: BarChart3, minLevel: 1, color: 'purple' },
-      { path: '/vdf-history', label: 'История VDF', icon: FileText, minLevel: 1, color: 'gray' },
+      { path: '/leaderboard', label: 'Топ-1000', icon: BarChart3, minLevel: 2, color: 'violet' },
+      { path: '/bans-mutes', label: 'Баны и муты', icon: Ban, minLevel: 2, color: 'rose' },
+      { path: '/staff-stats', label: 'Статистика', icon: BarChart3, minLevel: 2, color: 'purple' },
+      { path: '/vdf-history', label: 'История VDF', icon: FileText, minLevel: 3, color: 'gray' },
+      { path: '/logs', label: 'Логи', icon: List, minLevel: 3, color: 'slate' },
     ],
   },
   {
     title: 'УПРАВЛЕНИЕ',
     items: [
-      { path: '/whitelist', label: 'Белый список', icon: ShieldCheck, minLevel: 2, color: 'green' },
-    ],
-  },
-  {
-    title: 'АДМИН-ПАНЕЛЬ',
-    items: [
-      { path: '/admin', label: 'Пользователи', icon: Crown, minLevel: 5, color: 'yellow' },
-      { path: '/evaders', label: 'Обходники', icon: AlertTriangle, minLevel: 1, color: 'orange' },
+      { path: '/whitelist', label: 'Белый список', icon: ShieldCheck, minLevel: 4, color: 'green' },
+      { path: '/evaders', label: 'Обходники', icon: AlertTriangle, minLevel: 4, color: 'orange' },
+      { path: '/admin', label: 'Пользователи', icon: Crown, minLevel: 4, color: 'yellow' },
     ],
   },
 ];
@@ -305,7 +301,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Settings className="w-5 h-5" />
               <span className="text-sm font-medium">Настройки</span>
             </Link>
-            {hasLevel(5) && (
+            {hasLevel(3) && (
               <Link
                 to="/logs"
                 className="block w-full px-4 py-3 text-left text-gray-300 hover:bg-white/[0.05] rounded-lg flex items-center gap-3 mb-1"
@@ -328,13 +324,13 @@ export default function Layout({ children }: { children: ReactNode }) {
               <UserCircle className="w-5 h-5" />
               <span className="text-sm font-medium">Профиль</span>
             </Link>
-            {hasLevel(5) && (
+            {hasLevel(4) && (
               <Link
                 to="/admin"
                 className="block w-full px-4 py-3 text-left text-gray-300 hover:bg-white/[0.05] rounded-lg flex items-center gap-3 mt-1"
               >
                 <Crown className="w-5 h-5" />
-                <span className="text-sm font-medium">Администраторы</span>
+                <span className="text-sm font-medium">Пользователи</span>
               </Link>
             )}
           </nav>

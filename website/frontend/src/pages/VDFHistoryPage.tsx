@@ -16,6 +16,7 @@ interface VDFHistoryItem {
   yooma_banned: boolean;
   yooma_reason: string;
   admin_group: string;
+  on_fear: boolean;
   registered?: boolean;
 }
 
@@ -212,19 +213,18 @@ export default function VDFHistoryPage() {
                     );
                   })()}
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {check.attachment_url && (
-                      <a
-                        href={check.attachment_url}
-                        download={check.filename || 'config.vdf'}
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-[#1e2333] hover:bg-[#262c3f] text-gray-300 rounded-lg text-xs transition-all"
-                        title="Скачать .vdf"
-                      >
-                        <Download className="w-3 h-3" />
-                        .vdf
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        api.downloadVDF(check.id, check.filename || 'config.vdf');
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-[#1e2333] hover:bg-[#262c3f] text-gray-300 rounded-lg text-xs transition-all"
+                      title="Скачать .vdf"
+                    >
+                      <Download className="w-3 h-3" />
+                      .vdf
+                    </button>
                     {check.message_url && (
                       <a
                         href={check.message_url}
@@ -314,7 +314,7 @@ export default function VDFHistoryPage() {
                                       <Check className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
                                     )}
                                     {(() => {
-                                      const isRegistered = r.registered || (!!r.nickname && r.nickname !== 'Unknown');
+                                      const isRegistered = r.on_fear || r.registered || (!!r.nickname && r.nickname !== 'Unknown');
                                       return (
                                         <>
                                           <span className="text-xs font-medium text-white">{r.nickname || 'Unknown'}</span>

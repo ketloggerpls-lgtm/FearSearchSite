@@ -213,6 +213,16 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/profile/:id"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ProfilePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/faq"
         element={
           <ProtectedRoute>
@@ -225,7 +235,7 @@ function AppRoutes() {
       <Route
         path="/logs"
         element={
-          <ProtectedRoute minLevel={5}>
+          <ProtectedRoute minLevel={3}>
             <Layout>
               <LogsPage />
             </Layout>
@@ -235,7 +245,7 @@ function AppRoutes() {
       <Route
         path="/admin"
         element={
-          <ProtectedRoute minLevel={5}>
+          <ProtectedRoute minLevel={4}>
             <Layout>
               <AdminPanelPage />
             </Layout>

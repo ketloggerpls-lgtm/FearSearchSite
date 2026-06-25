@@ -83,7 +83,7 @@ func Load() *Config {
 		},
 		"OWNER_ALT": {
 			Level:    5,
-			RoleName: "Владелец (Alt)",
+			RoleName: "Owner",
 			RoleID:   getEnv("DISCORD_ROLE_OWNER_ALT", "1501738368026017912"),
 			Permissions: []string{
 				"staff.manage", "staff.view", "punishments.manage", "punishments.view",

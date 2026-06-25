@@ -120,6 +120,7 @@ export interface Punishment {
   status: number;
   time: string;
   server_id: number;
+  admin?: string;
   admin_name?: string;
   duration?: number;
   created?: number;

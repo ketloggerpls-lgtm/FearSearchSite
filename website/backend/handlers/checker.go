@@ -37,6 +37,7 @@ type AccountResult struct {
 	FearBanned      bool    `json:"fear_banned"`
 	FearReason      string  `json:"fear_reason,omitempty"`
 	FearUnbanTime   string  `json:"fear_unban_time,omitempty"`
+	OnFear          bool    `json:"on_fear"`
 	BanDurationDays int     `json:"ban_duration_days,omitempty"`
 	BanExpiryDate   string  `json:"ban_expiry_date,omitempty"`
 	VACBanned       bool    `json:"vac_banned"`
@@ -327,7 +328,7 @@ func (h *CheckHandler) CheckVDF(w http.ResponseWriter, r *http.Request) {
 		hashInput := filename + "\n" + strings.Join(sortedIDs, "\n")
 		configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(hashInput)))
 
-		_ = h.db.SaveConfigAccounts(configHash, steamIDs, filename)
+		_ = h.db.SaveConfigAccounts(configHash, steamIDs, filename, string(body))
 
 		resultsJSON, _ := json.Marshal(results)
 		_ = h.db.SaveVDFCheck(checkID, filename, "", "", resultsJSON, steamIDs, banned)
@@ -337,22 +338,23 @@ func (h *CheckHandler) CheckVDF(w http.ResponseWriter, r *http.Request) {
 			if res.VACDaysAgo > 0 {
 				vacDays = res.VACDaysAgo
 			}
-			_ = h.db.SaveVDFHistoryEntry(
-				checkID,
-				res.SteamID,
-				res.Name,
-				res.FearBanned,
-				res.FearReason,
-				res.FearUnbanTime,
-				res.VACBanned,
-				vacDays,
-				res.GameBans,
-				res.YoomaBanned,
-				res.YoomaReason,
-				"",
-				configHash,
-				filename,
-			)
+		_ = h.db.SaveVDFHistoryEntry(
+			checkID,
+			res.SteamID,
+			res.Name,
+			res.FearBanned,
+			res.FearReason,
+			res.FearUnbanTime,
+			res.VACBanned,
+			vacDays,
+			res.GameBans,
+			res.YoomaBanned,
+			res.YoomaReason,
+			"",
+			configHash,
+			filename,
+			res.OnFear,
+		)
 		}
 	}
 
@@ -428,6 +430,7 @@ func (h *CheckHandler) checkSingleAccount(steamID string) AccountResult {
 	var steamSummary steamSummaryResp
 	var steamBans steamBansResp
 	var yooma yoomaResp
+	var fearFound bool
 
 	var wg sync.WaitGroup
 	wg.Add(4)
@@ -437,6 +440,7 @@ func (h *CheckHandler) checkSingleAccount(steamID string) AccountResult {
 		url := fmt.Sprintf("https://api.fearproject.ru/profile/%s", steamID)
 		data := h.httpGet(url)
 		if data != nil {
+			fearFound = true
 			if n, ok := data["name"].(string); ok {
 				profile.Name = n
 			}
@@ -517,6 +521,7 @@ func (h *CheckHandler) checkSingleAccount(steamID string) AccountResult {
 	wg.Wait()
 
 	result.Name = profile.Name
+	result.OnFear = fearFound
 
 	if profile.AvatarFull != "" {
 		result.Avatar = profile.AvatarFull

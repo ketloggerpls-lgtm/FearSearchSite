@@ -18,6 +18,10 @@ interface PlayerRow extends FearAPIPlayer {
   flags?: string[];
   staffRole?: string;
   staffGroup?: string;
+  faceit_level?: number;
+  faceit_elo?: number;
+  report_count?: number;
+  reports_24h?: number;
 }
 
 function getWsUrl(): string {
@@ -147,6 +151,30 @@ export default function PlayersPage() {
     }));
   }, []);
 
+  const enrichFromDB = useCallback(async (steamIds: string[]) => {
+    if (steamIds.length === 0) return;
+    const ids = steamIds.filter(Boolean);
+    const chunks = chunk(ids, 200);
+    const allData: Record<string, any> = {};
+    await Promise.all(chunks.map(async (c) => {
+      try {
+        const res = await api.getPlayersEnrich(c);
+        if (res?.data) Object.assign(allData, res.data);
+      } catch {}
+    }));
+    setPlayers(prev => prev.map(p => {
+      const d = allData[p.steam_id];
+      if (!d) return p;
+      return {
+        ...p,
+        faceit_level: d.faceit_level ?? p.faceit_level,
+        faceit_elo: d.faceit_elo ?? p.faceit_elo,
+        report_count: d.report_count ?? d.reports_24h ?? p.report_count,
+        reports_24h: d.reports_24h ?? p.reports_24h,
+      };
+    }));
+  }, []);
+
   const fetchPlayers = useCallback(async () => {
     try {
       const res = await api.getServers();
@@ -195,13 +223,16 @@ export default function PlayersPage() {
         try {
           await enrichFromSteam(steamIds);
         } catch {}
+        try {
+          await enrichFromDB(steamIds);
+        } catch {}
       }
     } catch {
       setPlayers([]);
     } finally {
       setLoading(false);
     }
-  }, [enrichFromSteam]);
+  }, [enrichFromSteam, enrichFromDB]);
 
   useEffect(() => {
     fetchPlayers();
@@ -341,7 +372,7 @@ export default function PlayersPage() {
         transition={{ delay: 0.1 }}
         className="bg-[#12151e] rounded-xl border border-white/5 overflow-hidden"
       >
-        <div className="hidden sm:grid grid-cols-[40px_1fr_80px_100px_120px] gap-4 px-5 py-3 border-b border-white/5 text-xs text-gray-500 uppercase tracking-wider font-semibold">
+        <div className="hidden sm:grid grid-cols-[40px_1fr_70px_70px_90px_100px_120px] gap-4 px-5 py-3 border-b border-white/5 text-xs text-gray-500 uppercase tracking-wider font-semibold">
           <span>№</span>
           <button onClick={() => toggleSort('name')} className="flex items-center gap-1 hover:text-white transition-colors text-left">
             Игрок <SortIcon col="name" />
@@ -350,8 +381,10 @@ export default function PlayersPage() {
             K/D <SortIcon col="kd" />
           </button>
           <button onClick={() => toggleSort('kills')} className="flex items-center gap-1 hover:text-white transition-colors text-left">
-            Убийства <SortIcon col="kills" />
+            Kills <SortIcon col="kills" />
           </button>
+          <span className="text-left">Faceit</span>
+          <span className="text-left">Репорты</span>
           <span className="text-right">Действия</span>
         </div>
 
@@ -362,7 +395,7 @@ export default function PlayersPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: Math.min(i * 0.02, 0.5) }}
-              className="grid grid-cols-1 sm:grid-cols-[40px_1fr_80px_100px_120px] gap-2 sm:gap-4 px-5 py-3 hover:bg-[#161a25] transition-colors items-center group"
+              className="grid grid-cols-1 sm:grid-cols-[40px_1fr_70px_70px_90px_100px_120px] gap-2 sm:gap-4 px-5 py-3 hover:bg-[#161a25] transition-colors items-center group"
             >
               <span className="hidden sm:block text-sm text-gray-600">{i + 1}</span>
 
@@ -402,6 +435,28 @@ export default function PlayersPage() {
 
               <span className="text-sm text-gray-300">{(player.kd || 0).toFixed(2)}</span>
               <span className="text-sm text-white font-medium">{(player.kills || 0).toLocaleString()}</span>
+
+              <div className="flex items-center gap-2">
+                {player.faceit_level ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded">
+                    L{player.faceit_level}
+                    {player.faceit_elo ? <span className="text-[10px] text-gray-500">({player.faceit_elo})</span> : null}
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-600">—</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {(player.reports_24h || player.report_count || 0) > 0 ? (
+                  <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded ${(player.reports_24h || 0) >= 3 ? 'bg-red-500/10 text-red-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                    {(player.reports_24h || player.report_count)}
+                    <span className="text-[10px] text-gray-500">24ч</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-600">0</span>
+                )}
+              </div>
 
               <div className="flex items-center justify-start sm:justify-end gap-2">
                 <button

@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"fearstaff-api/config"
@@ -98,7 +101,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.db != nil {
-		h.db.LogLogin(user.DiscordID, r.RemoteAddr, r.UserAgent())
+		h.db.LogLogin(user.DiscordID, getRealIP(r), r.UserAgent())
 	}
 
 	frontURL := h.cfg.FrontendURL
@@ -342,4 +345,143 @@ func urlEncode(s string) string {
 		"&", "%26",
 		"=", "%3D",
 	).Replace(s)
+}
+
+func getRealIP(r *http.Request) string {
+	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+		return cf
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			ip := strings.TrimSpace(parts[0])
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+		return xri
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	return ip
+}
+
+func parseUserAgent(ua string) (browser, os string) {
+	ua = strings.ToLower(ua)
+	osPatterns := map[string]string{
+		"windows nt 10.0":  "Windows 10/11",
+		"windows nt 6.3":   "Windows 8.1",
+		"windows nt 6.2":   "Windows 8",
+		"windows nt 6.1":   "Windows 7",
+		"macintosh":        "macOS",
+		"linux":            "Linux",
+		"android":          "Android",
+		"iphone":           "iOS",
+		"ipad":             "iOS",
+	}
+	for pat, name := range osPatterns {
+		if strings.Contains(ua, pat) {
+			os = name
+			break
+		}
+	}
+	browserPatterns := map[string]string{
+		"edg/":      "Edge",
+		"opr/":      "Opera",
+		"chrome/":   "Chrome",
+		"safari/":   "Safari",
+		"firefox/":  "Firefox",
+		"brave/":    "Brave",
+		"vivaldi/":  "Vivaldi",
+	}
+	for pat, name := range browserPatterns {
+		if strings.Contains(ua, pat) {
+			browser = name
+			break
+		}
+	}
+	if browser == "" {
+		browser = "Browser"
+	}
+	if os == "" {
+		os = "Unknown"
+	}
+	return browser, os
+}
+
+type ipGeoEntry struct {
+	country string
+	city    string
+	at      time.Time
+}
+
+var (
+	ipGeoCache   = make(map[string]ipGeoEntry)
+	ipGeoCacheMu sync.RWMutex
+	ipGeoTTL     = 1 * time.Hour
+)
+
+func getIPGeo(ip string) (country, city string) {
+	if ip == "" || ip == "127.0.0.1" || strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "172.") {
+		return "", ""
+	}
+	ipGeoCacheMu.RLock()
+	if e, ok := ipGeoCache[ip]; ok && time.Since(e.at) < ipGeoTTL {
+		ipGeoCacheMu.RUnlock()
+		return e.country, e.city
+	}
+	ipGeoCacheMu.RUnlock()
+
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://ip-api.com/json/%s?fields=status,country,city,query", url.PathEscape(ip)))
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	var data struct {
+		Status  string `json:"status"`
+		Country string `json:"country"`
+		City    string `json:"city"`
+		Query   string `json:"query"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || data.Status != "success" {
+		return "", ""
+	}
+	ipGeoCacheMu.Lock()
+	ipGeoCache[ip] = ipGeoEntry{country: data.Country, city: data.City, at: time.Now()}
+	ipGeoCacheMu.Unlock()
+	return data.Country, data.City
+}
+
+func (h *AuthHandler) GetPublicProfile(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, `{"error":"database not available"}`, http.StatusInternalServerError)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/api/user/profile/")
+	}
+	if id == "" {
+		http.Error(w, `{"error":"id required"}`, http.StatusBadRequest)
+		return
+	}
+	user, err := h.db.GetPublicUserByID(id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"user":    user,
+	})
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Search, Filter, ChevronDown, ExternalLink, Shield, Ban, VolumeX, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Users, Search, Filter, ChevronDown, ChevronUp, ExternalLink, Shield, Ban, VolumeX, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { api } from '../services/api';
 import type { StaffMember } from '../types';
 
@@ -38,7 +38,7 @@ const roleBadgeColors: Record<string, string> = {
 
 const roleNames: Record<string, string> = {
   OWNER: 'Владелец',
-  OWNER_ALT: 'Владелец',
+  OWNER_ALT: 'Owner',
   CURATOR: 'Куратор',
   GLADMIN: 'Гл. Администратор',
   STADMIN: 'Ст. Администратор',
@@ -52,7 +52,7 @@ const roleNames: Record<string, string> = {
   DOSTUP: 'Доступ',
 };
 
-const GROUP_ORDER = ['MLMODER', 'MODER', 'STMODER', 'ADMIN', 'ADMIN_PLUS', 'STADMIN', 'GLADMIN', 'STAFF', 'SYSTEM_ADMIN', 'OWNER', 'OWNER_ALT', 'CURATOR', 'DOSTUP'];
+const GROUP_ORDER = ['STAFF', 'GLADMIN', 'STADMIN', 'ADMIN_PLUS', 'ADMIN', 'STMODER', 'MODER', 'MLMODER'];
 const groups = ['ALL', ...GROUP_ORDER];
 
 interface StaffStatsMap {
@@ -95,7 +95,11 @@ export default function StaffPage() {
     const q = search.toLowerCase().trim();
     const matchesSearch = !q ||
       m.name?.toLowerCase().includes(q) ||
-      m.steam_id?.includes(q);
+      m.steam_id?.includes(q) ||
+      m.discord_id?.includes(q) ||
+      m.discord_name?.toLowerCase().includes(q) ||
+      m.group_name?.toLowerCase().includes(q) ||
+      roleNames[m.group_name]?.toLowerCase().includes(q);
     const matchesGroup = filterGroup === 'ALL' || m.group_name === filterGroup;
     return matchesSearch && matchesGroup;
   });
@@ -200,7 +204,7 @@ export default function StaffPage() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="flex gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-          <input type="text" placeholder="Поиск по нику или SteamID..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-12" />
+          <input type="text" placeholder="Поиск по нику, SteamID или DiscordID..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-12" />
         </div>
         <div className="relative">
           <button onClick={() => setShowFilter(!showFilter)} className="flex items-center gap-2 px-4 py-3 glass-card hover:border-accent-blue/30 transition-all">
@@ -275,11 +279,10 @@ function StaffCard({ member, index, stats }: { member: StaffMember; index: numbe
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.05 }}
       whileHover={{ y: -2 }}
-      className="glass-card-hover p-5 cursor-pointer"
-      onClick={() => setExpanded(!expanded)}
+      className="glass-card-hover overflow-hidden"
     >
-      <div className="flex items-center gap-4">
-        <div className={`w-14 h-14 bg-gradient-to-br ${roleColors[member.group_name] || 'from-gray-500 to-gray-600'} rounded-2xl flex items-center justify-center shadow-lg overflow-hidden`}>
+      <div className="p-5 flex items-center gap-4 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className={`w-14 h-14 bg-gradient-to-br ${roleColors[member.group_name] || 'from-gray-500 to-gray-600'} rounded-2xl flex items-center justify-center shadow-lg overflow-hidden flex-shrink-0`}>
           {member.avatar ? (
             <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
           ) : (
@@ -311,17 +314,18 @@ function StaffCard({ member, index, stats }: { member: StaffMember; index: numbe
             </div>
           )}
         </div>
-        <div className="text-right">
+        <div className="text-right flex flex-col items-end gap-1">
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${roleBadgeColors[member.group_name] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
             {roleNames[member.group_name] || member.group_name}
           </span>
+          {expanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
         </div>
       </div>
 
       <AnimatePresence>
         {expanded && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-            <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
+            <div className="px-5 pb-5 pt-0 border-t border-white/5 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">SteamID</span>
                 <span className="text-gray-300 font-mono">{member.steam_id}</span>

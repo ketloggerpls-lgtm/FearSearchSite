@@ -54,6 +54,7 @@ func main() {
 	mux.HandleFunc("/api/auth/login", auth.LoginURL)
 	mux.HandleFunc("/api/auth/callback", auth.Callback)
 	mux.Handle("/api/auth/me", handlers.AuthMiddleware(cfg, http.HandlerFunc(auth.Me)))
+	mux.Handle("/api/user/profile/{id}", handlers.AuthMiddleware(cfg, http.HandlerFunc(auth.GetPublicProfile)))
 
 	mux.Handle("/api/staff", handlers.AuthMiddleware(cfg, http.HandlerFunc(users.GetStaff)))
 	mux.Handle("/api/staff/group", handlers.AuthMiddleware(cfg, http.HandlerFunc(users.GetStaffByGroup)))
@@ -70,6 +71,7 @@ func main() {
 	mux.Handle("/api/whitelist/delete", handlers.AuthMiddleware(cfg, http.HandlerFunc(whitelist.DeleteEntry)))
 
 	mux.Handle("/api/servers", handlers.AuthMiddleware(cfg, http.HandlerFunc(fearAPI.GetServers)))
+	mux.Handle("/api/players/enrich", handlers.AuthMiddleware(cfg, http.HandlerFunc(fearAPI.GetPlayersEnrich)))
 	mux.Handle("/api/leaderboard", handlers.AuthMiddleware(cfg, http.HandlerFunc(fearAPI.GetLeaderboard)))
 	mux.Handle("/api/drops", handlers.AuthMiddleware(cfg, http.HandlerFunc(drops.GetDrops)))
 	mux.Handle("/api/drops/stats", handlers.AuthMiddleware(cfg, http.HandlerFunc(drops.GetDropsStats)))
@@ -104,6 +106,7 @@ func main() {
 	mux.Handle("/api/check/vdf", handlers.AuthMiddleware(cfg, http.HandlerFunc(checker.CheckVDF)))
 	mux.Handle("/api/evaders", handlers.AuthMiddleware(cfg, http.HandlerFunc(evaders.GetEvaders)))
 	mux.Handle("/api/vdf-history", handlers.AuthMiddleware(cfg, http.HandlerFunc(vdfHistory.GetHistory)))
+	mux.Handle("/api/vdf-history/download/{id}", handlers.AuthMiddleware(cfg, http.HandlerFunc(vdfHistory.DownloadVDF)))
 	mux.Handle("/api/vdf-history/recheck", handlers.AuthMiddleware(cfg, http.HandlerFunc(vdfHistory.RequestRecheck)))
 	mux.Handle("/api/vdf-history/recheck/result", handlers.AuthMiddleware(cfg, http.HandlerFunc(vdfHistory.GetRecheckResult)))
 

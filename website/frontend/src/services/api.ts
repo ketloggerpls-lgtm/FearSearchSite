@@ -51,6 +51,10 @@ class ApiService {
     return this.request('/api/auth/me');
   }
 
+  async getPublicProfile(id: string) {
+    return this.request(`/api/user/profile/${id}`);
+  }
+
   async getStaff() {
     return this.request('/api/staff');
   }
@@ -69,6 +73,10 @@ class ApiService {
 
   async getServers() {
     return this.request('/api/servers');
+  }
+
+  async getPlayersEnrich(steamids: string[]) {
+    return this.request(`/api/players/enrich?steamids=${steamids.join(',')}`);
   }
 
   async getLeaderboard() {
@@ -113,11 +121,14 @@ class ApiService {
     return this.request(`/api/staff/punishments/staff-stats?steamids=${steamids.join(',')}`);
   }
 
-  async getStaffPunishments(params?: { type?: number; limit?: number; offset?: number }) {
+  async getStaffPunishments(params?: { type?: number; limit?: number; offset?: number; status?: number; search?: string; admin_steamid?: string }) {
     const searchParams = new URLSearchParams();
     if (params?.type !== undefined) searchParams.set('type', String(params.type));
+    if (params?.status !== undefined) searchParams.set('status', String(params.status));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.offset) searchParams.set('offset', String(params.offset));
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.admin_steamid) searchParams.set('admin_steamid', params.admin_steamid);
     const qs = searchParams.toString();
     return this.request(`/api/staff/punishments${qs ? '?' + qs : ''}`);
   }
@@ -212,6 +223,33 @@ class ApiService {
 
   async getVDFRecheckResult(recheckId: number) {
     return this.request(`/api/vdf-history/recheck/result?id=${recheckId}`);
+  }
+
+  async downloadVDF(checkId: number, filename = 'config.vdf') {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(`${API_BASE}/api/vdf-history/download/${checkId}`, {
+      method: 'GET',
+      headers,
+    });
+    if (res.status === 401) {
+      this.token = null;
+      localStorage.removeItem('token');
+      window.location.href = '/';
+      throw new Error('Unauthorized');
+    }
+    if (!res.ok) throw new Error(`API Error ${res.status}`);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   }
 
   async getLogs(params?: { service?: string; level?: string; search?: string; limit?: number; offset?: number }) {

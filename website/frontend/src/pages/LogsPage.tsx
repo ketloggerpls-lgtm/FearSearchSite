@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Search, Filter, ChevronDown, AlertTriangle, Info, XCircle, Clock, RefreshCw } from 'lucide-react';
+import { Activity, Search, ChevronDown, AlertTriangle, Info, XCircle, Clock, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 
 interface LogEntry {
@@ -42,9 +42,16 @@ export default function LogsPage() {
   const [level, setLevel] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
-  const [showServiceFilter, setShowServiceFilter] = useState(false);
   const [showLevelFilter, setShowLevelFilter] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const limit = 50;
+
+  const serviceTabs = [
+    { key: '', label: 'Все' },
+    { key: 'site', label: 'Сайт' },
+    { key: 'bot', label: 'Бот' },
+    { key: 'auth', label: 'Авторизация' },
+  ];
 
   const load = () => {
     api.getLogs({ service, level, search, limit, offset: page * limit })
@@ -110,40 +117,32 @@ export default function LogsPage() {
         </motion.div>
       )}
 
-      {/* Filters */}
+      {/* Service tabs + Filters */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-        className="flex gap-3 flex-wrap"
+        className="flex flex-col gap-3"
       >
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input type="text" placeholder="Search logs..." value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            className="input-field pl-10 text-sm"
-          />
+        <div className="flex gap-2 flex-wrap">
+          {serviceTabs.map((tab) => (
+            <button key={tab.key} onClick={() => { setService(tab.key); setPage(0); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${service === tab.key ? 'bg-accent-blue/10 text-accent-blue border-accent-blue/30' : 'bg-[#1a1f2e] text-gray-400 border-white/5 hover:text-white'}`}
+            >
+              {tab.label}
+              {tab.key && stats?.services?.[tab.key] !== undefined && (
+                <span className="ml-1.5 text-[10px] text-gray-500">{stats.services[tab.key]}</span>
+              )}
+            </button>
+          ))}
         </div>
-        <div className="relative">
-          <button onClick={() => { setShowServiceFilter(!showServiceFilter); setShowLevelFilter(false); }}
-            className="flex items-center gap-2 px-3 py-2 glass-card hover:border-accent-blue/30 transition-all text-sm"
-          >
-            <Filter className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-300">{service || 'All Services'}</span>
-            <ChevronDown className={`w-3 h-3 text-gray-500 transition-transform ${showServiceFilter ? 'rotate-180' : ''}`} />
-          </button>
-          {showServiceFilter && (
-            <div className="absolute right-0 top-full mt-1 w-48 glass-card p-1 z-20">
-              <button onClick={() => { setService(''); setShowServiceFilter(false); setPage(0); }}
-                className={`w-full text-left px-3 py-1.5 rounded text-sm ${!service ? 'bg-accent-blue/10 text-accent-blue' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
-              >All Services</button>
-              {services.map((s) => (
-                <button key={s} onClick={() => { setService(s); setShowServiceFilter(false); setPage(0); }}
-                  className={`w-full text-left px-3 py-1.5 rounded text-sm ${service === s ? 'bg-accent-blue/10 text-accent-blue' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
-                >{s} ({stats?.services?.[s] || 0})</button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="relative">
-          <button onClick={() => { setShowLevelFilter(!showLevelFilter); setShowServiceFilter(false); }}
+        <div className="flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input type="text" placeholder="Поиск по сообщению..." value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              className="input-field pl-10 text-sm"
+            />
+          </div>
+          <div className="relative">
+          <button onClick={() => { setShowLevelFilter(!showLevelFilter); }}
             className="flex items-center gap-2 px-3 py-2 glass-card hover:border-accent-blue/30 transition-all text-sm"
           >
             <span className="text-gray-300">{level || 'All Levels'}</span>
@@ -167,6 +166,7 @@ export default function LogsPage() {
         >
           <RefreshCw className="w-4 h-4 text-gray-400" />
         </button>
+        </div>
       </motion.div>
 
       {/* Log Table */}
@@ -183,23 +183,32 @@ export default function LogsPage() {
         <div className="space-y-1">
           {logs.map((log) => {
             const Icon = levelIcons[log.level] || Info;
+            const expanded = expandedId === log.id;
             return (
               <motion.div key={log.id}
                 initial={{ opacity: 0, x: -5 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="flex items-start gap-3 px-4 py-2.5 bg-[#12151e] rounded-lg border border-white/5 hover:border-white/10 transition-colors"
+                onClick={() => setExpandedId(expanded ? null : log.id)}
+                className="cursor-pointer px-4 py-2.5 bg-[#12151e] rounded-lg border border-white/5 hover:border-white/10 transition-colors"
               >
-                <span className="text-xs text-gray-600 font-mono w-16 flex-shrink-0 pt-0.5">{log.id}</span>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border flex-shrink-0 ${levelColors[log.level] || 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
-                  <Icon className="w-3 h-3" />
-                  {log.level}
-                </span>
-                <span className="px-2 py-0.5 bg-white/5 rounded text-[10px] text-gray-400 font-mono flex-shrink-0">{log.service}</span>
-                <span className="text-sm text-gray-300 flex-1 min-w-0 truncate">{log.message}</span>
-                <span className="text-xs text-gray-600 flex-shrink-0 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {formatTime(log.created_at)}
-                </span>
+                <div className="flex items-start gap-3">
+                  <span className="text-xs text-gray-600 font-mono w-16 flex-shrink-0 pt-0.5">{log.id}</span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border flex-shrink-0 ${levelColors[log.level] || 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
+                    <Icon className="w-3 h-3" />
+                    {log.level}
+                  </span>
+                  <span className="px-2 py-0.5 bg-white/5 rounded text-[10px] text-gray-400 font-mono flex-shrink-0">{log.service}</span>
+                  <span className={`text-sm flex-1 min-w-0 ${expanded ? 'text-gray-300 whitespace-pre-wrap' : 'text-gray-300 truncate'}`}>{log.message}</span>
+                  <span className="text-xs text-gray-600 flex-shrink-0 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {formatTime(log.created_at)}
+                  </span>
+                </div>
+                {expanded && log.data && (
+                  <div className="mt-2 ml-[88px] p-2 bg-[#0c0e14] rounded border border-white/5 text-xs text-gray-400 font-mono whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(log.data, null, 2)}
+                  </div>
+                )}
               </motion.div>
             );
           })}

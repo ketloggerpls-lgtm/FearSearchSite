@@ -360,7 +360,7 @@ export default function DashboardPage() {
         >
           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
             <Activity className="w-5 h-5 text-accent-blue" />
-            Server Activity (24h)
+            Активность серверов (24ч)
           </h2>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chartData}>
@@ -369,13 +369,17 @@ export default function DashboardPage() {
                   <stop offset="5%" stopColor="#4f7cff" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#4f7cff" stopOpacity={0} />
                 </linearGradient>
+                <linearGradient id="colorAdmins" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e2333" />
               <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={{ background: '#1a1f2e', border: '1px solid #2d3548', borderRadius: 8, fontSize: 12 }} />
               <Area type="monotone" dataKey="players" stroke="#4f7cff" fillOpacity={1} fill="url(#colorPlayers)" strokeWidth={2} />
-              <Area type="monotone" dataKey="admins" stroke="#f59e0b" fillOpacity={0.1} fill="#f59e0b" strokeWidth={1} strokeDasharray="5 5" />
+              <Area type="monotone" dataKey="admins" stroke="#f59e0b" fillOpacity={1} fill="url(#colorAdmins)" strokeWidth={1} strokeDasharray="5 5" />
             </AreaChart>
           </ResponsiveContainer>
         </motion.div>

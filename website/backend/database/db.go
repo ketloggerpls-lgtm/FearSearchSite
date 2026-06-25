@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -176,6 +177,43 @@ func (db *DB) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_vdf_history_check_id ON vdf_history(check_id)`,
 		`ALTER TABLE vdf_history ADD COLUMN IF NOT EXISTS attachment_url TEXT`,
 		`ALTER TABLE vdf_history ADD COLUMN IF NOT EXISTS message_url TEXT`,
+		`ALTER TABLE vdf_history ADD COLUMN IF NOT EXISTS on_fear BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE config_hashes ADD COLUMN IF NOT EXISTS content TEXT`,
+		`CREATE TABLE IF NOT EXISTS profiles (
+			steamid TEXT PRIMARY KEY,
+			name TEXT,
+			last_activity TIMESTAMPTZ,
+			avatar_full TEXT,
+			discord_nickname TEXT,
+			discord_id TEXT,
+			rank INTEGER,
+			kills INTEGER,
+			deaths INTEGER,
+			playtime INTEGER,
+			ban_is_banned BOOLEAN,
+			vip_is_vip BOOLEAN,
+			faceit_level INTEGER,
+			faceit_elo INTEGER,
+			report_count INTEGER DEFAULT 0,
+			raw_json JSONB,
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS reports (
+			id BIGINT PRIMARY KEY,
+			steamid VARCHAR(32) NOT NULL,
+			intruder_name VARCHAR(255),
+			intruder_avatar TEXT,
+			sender VARCHAR(255),
+			sender_steamid VARCHAR(32),
+			reason TEXT,
+			created_at TIMESTAMPTZ,
+			raw_json JSONB,
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_reports_steamid ON reports(steamid)`,
+		`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS faceit_level INTEGER`,
+		`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS faceit_elo INTEGER`,
+		`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS report_count INTEGER DEFAULT 0`,
 		// Shared tables created by bot, ensured here for fresh backend deployments
 		`CREATE TABLE IF NOT EXISTS punishments (
 			id BIGINT PRIMARY KEY,
@@ -291,6 +329,51 @@ func (db *DB) GetUserByDiscordID(discordID string) (*models.User, error) {
 	_ = json.Unmarshal(permJSON, &user.Permissions)
 	_ = json.Unmarshal(rolesJSON, &user.GuildRoles)
 	return &user, nil
+}
+
+func (db *DB) GetPublicUserByID(id string) (map[string]interface{}, error) {
+	if db.pool == nil {
+		return nil, fmt.Errorf("no database")
+	}
+	ctx := context.Background()
+	var (
+		discordID, username, displayName, avatar, staffGroup, staffRole, steamID string
+		level                                                                   int
+		rolesJSON                                                               []byte
+		lastLogin                                                               interface{}
+	)
+	where := "discord_id = $1"
+	if isSteamID(id) {
+		where = "steam_id = $1"
+	}
+	err := db.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT discord_id, username, display_name, avatar, staff_group, staff_role, steam_id, level, guild_roles, last_login
+		FROM users WHERE %s
+	`, where), id).Scan(
+		&discordID, &username, &displayName, &avatar, &staffGroup, &staffRole, &steamID, &level, &rolesJSON, &lastLogin,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var guildRoles []string
+	_ = json.Unmarshal(rolesJSON, &guildRoles)
+	result := map[string]interface{}{
+		"discord_id":   discordID,
+		"username":     username,
+		"display_name": displayName,
+		"avatar":       avatar,
+		"staff_group":  staffGroup,
+		"staff_role":   staffRole,
+		"steam_id":     steamID,
+		"level":        level,
+		"guild_roles":  guildRoles,
+		"last_login":   fmt.Sprintf("%v", lastLogin),
+	}
+	return result, nil
+}
+
+func isSteamID(s string) bool {
+	return len(s) >= 17 && s[:2] == "76" && len(s) <= 18
 }
 
 func (db *DB) GetAllUsers() ([]models.User, error) {
@@ -509,6 +592,61 @@ func (db *DB) UpsertProfileCache(steamID, name, avatar string) {
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (steam_id) DO UPDATE SET name = EXCLUDED.name, avatar = EXCLUDED.avatar, fetched_at = NOW()
 	`, steamID, name, avatar)
+}
+
+func (db *DB) GetPlayersEnrich(steamIDs []string) (map[string]map[string]interface{}, error) {
+	if db.pool == nil || len(steamIDs) == 0 {
+		return nil, nil
+	}
+	ctx := context.Background()
+	result := make(map[string]map[string]interface{})
+
+	rows, err := db.pool.Query(ctx, `
+		SELECT p.steamid, p.faceit_level, p.faceit_elo, p.report_count,
+		       (SELECT COUNT(*)::int FROM reports r WHERE r.steamid = p.steamid AND r.created_at > NOW() - INTERVAL '24 hours') as reports_24h
+		FROM profiles p
+		WHERE p.steamid = ANY($1)
+	`, steamIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid string
+		var faceitLevel, faceitElo, reportCount, reports24h *int
+		if err := rows.Scan(&sid, &faceitLevel, &faceitElo, &reportCount, &reports24h); err != nil {
+			continue
+		}
+		result[sid] = map[string]interface{}{
+			"faceit_level":  faceitLevel,
+			"faceit_elo":    faceitElo,
+			"report_count":  reportCount,
+			"reports_24h":   reports24h,
+		}
+	}
+
+	// Also include report counts for players without a profile row
+	rows2, err := db.pool.Query(ctx, `
+		SELECT r.steamid, COUNT(*)::int
+		FROM reports r
+		WHERE r.steamid = ANY($1) AND r.created_at > NOW() - INTERVAL '24 hours'
+		GROUP BY r.steamid
+	`, steamIDs)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var sid string
+			var cnt int
+			if err := rows2.Scan(&sid, &cnt); err != nil {
+				continue
+			}
+			if _, ok := result[sid]; !ok {
+				result[sid] = map[string]interface{}{}
+			}
+			result[sid]["reports_24h"] = cnt
+		}
+	}
+	return result, nil
 }
 
 type ProfileCache struct {
@@ -921,8 +1059,10 @@ func (db *DB) GetUserLoginHistory(discordID string, limit int) ([]map[string]int
 		limit = 50
 	}
 	rows, err := db.pool.Query(ctx, `
-		SELECT lh.ip_address, lh.user_agent, lh.logged_in_at::text
+		SELECT lh.ip_address, lh.user_agent, lh.logged_in_at::text,
+		       COALESCE(u.steam_id, '') as steam_id
 		FROM login_history lh
+		LEFT JOIN users u ON u.discord_id = lh.discord_id
 		WHERE lh.discord_id = $1
 		ORDER BY lh.id DESC
 		LIMIT $2
@@ -934,14 +1074,15 @@ func (db *DB) GetUserLoginHistory(discordID string, limit int) ([]map[string]int
 
 	var result []map[string]interface{}
 	for rows.Next() {
-		var ip, userAgent, loggedAt string
-		if err := rows.Scan(&ip, &userAgent, &loggedAt); err != nil {
+		var ip, userAgent, loggedAt, steamID string
+		if err := rows.Scan(&ip, &userAgent, &loggedAt, &steamID); err != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
 			"ip_address":   ip,
 			"user_agent":   userAgent,
 			"logged_in_at": loggedAt,
+			"steam_id":     steamID,
 		})
 	}
 	return result, nil
@@ -1000,16 +1141,16 @@ func (db *DB) GetNextCheckID() (int, error) {
 	return maxID + 1, nil
 }
 
-func (db *DB) SaveConfigAccounts(configHash string, steamIDs []string, filename string) error {
+func (db *DB) SaveConfigAccounts(configHash string, steamIDs []string, filename string, content string) error {
 	if db.pool == nil {
 		return nil
 	}
 	ctx := context.Background()
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO config_hashes (config_hash, filename, created_at)
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (config_hash) DO UPDATE SET filename = EXCLUDED.filename
-	`, configHash, filename)
+		INSERT INTO config_hashes (config_hash, filename, content, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (config_hash) DO UPDATE SET filename = EXCLUDED.filename, content = EXCLUDED.content
+	`, configHash, filename, content)
 	if err != nil {
 		return err
 	}
@@ -1049,7 +1190,7 @@ func (db *DB) GetLinkedSteamIDs(steamID string) ([]string, error) {
 	return ids, nil
 }
 
-func (db *DB) SaveVDFHistoryEntry(checkID int, steamID, nickname string, fearBanned bool, fearReason, fearUnbanTime string, vacBanned bool, vacDaysAgo, gameBans int, yoomaBanned bool, yoomaReason, adminGroup, configHash, filename string) error {
+func (db *DB) SaveVDFHistoryEntry(checkID int, steamID, nickname string, fearBanned bool, fearReason, fearUnbanTime string, vacBanned bool, vacDaysAgo, gameBans int, yoomaBanned bool, yoomaReason, adminGroup, configHash, filename string, onFear bool) error {
 	if db.pool == nil {
 		return nil
 	}
@@ -1058,11 +1199,11 @@ func (db *DB) SaveVDFHistoryEntry(checkID int, steamID, nickname string, fearBan
 		INSERT INTO vdf_history
 			(check_id, steamid, nickname, fear_banned, fear_reason, fear_unban_time,
 			 vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason,
-			 admin_group, config_hash, filename, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+			 admin_group, config_hash, filename, on_fear, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
 	`, checkID, steamID, nickname, fearBanned, fearReason, fearUnbanTime,
 		vacBanned, vacDaysAgo, gameBans, yoomaBanned, yoomaReason,
-		adminGroup, configHash, filename)
+		adminGroup, configHash, filename, onFear)
 	return err
 }
 
@@ -1075,7 +1216,7 @@ func (db *DB) GetVDFHistoryDetailed() ([]map[string]interface{}, error) {
 		SELECT steamid, nickname, fear_banned, fear_reason, fear_unban_time,
 		       vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason,
 		       admin_group, config_hash, filename, check_id, created_at::text,
-		       attachment_url, message_url
+		       attachment_url, message_url, on_fear
 		FROM vdf_history
 		ORDER BY id DESC
 	`)
@@ -1089,13 +1230,13 @@ func (db *DB) GetVDFHistoryDetailed() ([]map[string]interface{}, error) {
 			steamID, nickname, fearReason, fearUnbanTime, yoomaReason string
 			adminGroup, configHash, filename, createdAt              string
 			attachmentURL, messageURL                                string
-			fearBanned, vacBanned, yoomaBanned                       bool
+			fearBanned, vacBanned, yoomaBanned, onFear             bool
 			vacDaysAgo, gameBans, checkID                            int
 		)
 		if err := rows.Scan(&steamID, &nickname, &fearBanned, &fearReason, &fearUnbanTime,
 			&vacBanned, &vacDaysAgo, &gameBans, &yoomaBanned, &yoomaReason,
 			&adminGroup, &configHash, &filename, &checkID, &createdAt,
-			&attachmentURL, &messageURL); err != nil {
+			&attachmentURL, &messageURL, &onFear); err != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
@@ -1116,6 +1257,7 @@ func (db *DB) GetVDFHistoryDetailed() ([]map[string]interface{}, error) {
 			"created_at":      createdAt,
 			"attachment_url":  attachmentURL,
 			"message_url":     messageURL,
+			"on_fear":         onFear,
 		})
 	}
 	return result, nil
@@ -1129,7 +1271,7 @@ func (db *DB) GetVDFHistoryBySteamID(steamID string, limit int) ([]map[string]in
 	rows, err := db.pool.Query(ctx, `
 		SELECT steamid, nickname, fear_banned, fear_reason, fear_unban_time,
 		       vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason,
-		       admin_group, config_hash, filename, check_id, created_at::text
+		       admin_group, config_hash, filename, check_id, created_at::text, on_fear
 		FROM vdf_history
 		WHERE steamid = $1
 		ORDER BY id DESC
@@ -1144,12 +1286,12 @@ func (db *DB) GetVDFHistoryBySteamID(steamID string, limit int) ([]map[string]in
 		var (
 			sid, nickname, fearReason, fearUnbanTime, yoomaReason string
 			adminGroup, configHash, filename, createdAt          string
-			fearBanned, vacBanned, yoomaBanned                   bool
+			fearBanned, vacBanned, yoomaBanned, onFear         bool
 			vacDaysAgo, gameBans, checkID                        int
 		)
 		if err := rows.Scan(&sid, &nickname, &fearBanned, &fearReason, &fearUnbanTime,
 			&vacBanned, &vacDaysAgo, &gameBans, &yoomaBanned, &yoomaReason,
-			&adminGroup, &configHash, &filename, &checkID, &createdAt); err != nil {
+			&adminGroup, &configHash, &filename, &checkID, &createdAt, &onFear); err != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
@@ -1168,6 +1310,7 @@ func (db *DB) GetVDFHistoryBySteamID(steamID string, limit int) ([]map[string]in
 			"filename":       filename,
 			"check_id":       checkID,
 			"created_at":     createdAt,
+			"on_fear":        onFear,
 		})
 	}
 	return result, nil
@@ -1290,6 +1433,30 @@ func (db *DB) GetConfigAccounts(configHash string) ([]string, error) {
 		}
 	}
 	return ids, nil
+}
+
+func (db *DB) GetVDFContentByCheckID(checkID int) (filename, content string, err error) {
+	if db.pool == nil {
+		return "", "", fmt.Errorf("no database")
+	}
+	ctx := context.Background()
+	var configHash string
+	err = db.pool.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT config_hash FROM vdf_history WHERE check_id = $1 LIMIT 1
+		), '')
+	`, checkID).Scan(&configHash)
+	if err != nil || configHash == "" {
+		return "", "", fmt.Errorf("config not found")
+	}
+	err = db.pool.QueryRow(ctx, `
+		SELECT COALESCE(filename, 'config.vdf'), COALESCE(content, '')
+		FROM config_hashes WHERE config_hash = $1
+	`, configHash).Scan(&filename, &content)
+	if err != nil {
+		return "", "", err
+	}
+	return filename, content, nil
 }
 
 func (db *DB) UpdateVDFHistoryBan(steamID string, fearBanned bool, fearReason, fearUnbanTime string) error {
@@ -1582,26 +1749,39 @@ func (db *DB) GetAdminsWithProfiles() ([]map[string]interface{}, error) {
 	return result, nil
 }
 
-func (db *DB) GetPunishmentsList(ptype int, limit, offset int) ([]map[string]interface{}, error) {
+func (db *DB) GetPunishmentsList(ptype int, limit, offset int, status int, adminSteamID, search string) ([]map[string]interface{}, error) {
 	if db.pool == nil {
 		return nil, fmt.Errorf("no database")
 	}
 	ctx := context.Background()
-	var rows pgx.Rows
-	var err error
+	args := []interface{}{}
+	where := []string{}
 	if ptype > 0 {
-		rows, err = db.pool.Query(ctx, `
-			SELECT id, type, steamid, name, admin, admin_steamid, reason, status, duration, created, expires, updated_at
-			FROM punishments WHERE type = $1
-			ORDER BY created DESC LIMIT $2 OFFSET $3
-		`, ptype, limit, offset)
-	} else {
-		rows, err = db.pool.Query(ctx, `
-			SELECT id, type, steamid, name, admin, admin_steamid, reason, status, duration, created, expires, updated_at
-			FROM punishments
-			ORDER BY created DESC LIMIT $1 OFFSET $2
-		`, limit, offset)
+		args = append(args, ptype)
+		where = append(where, fmt.Sprintf("type = $%d", len(args)))
 	}
+	if status > 0 {
+		args = append(args, status)
+		where = append(where, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if adminSteamID != "" {
+		args = append(args, adminSteamID)
+		where = append(where, fmt.Sprintf("admin_steamid = $%d", len(args)))
+	}
+	if search != "" {
+		args = append(args, "%"+search+"%", "%"+search+"%", "%"+search+"%", "%"+search+"%")
+		start := len(args) - 3
+		where = append(where, fmt.Sprintf(
+			"(name ILIKE $%d OR steamid ILIKE $%d OR admin ILIKE $%d OR reason ILIKE $%d)",
+			start, start+1, start+2, start+3))
+	}
+	query := "SELECT id, type, steamid, name, admin, admin_steamid, reason, status, duration, created, expires, updated_at FROM punishments"
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY created DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1655,11 +1835,13 @@ func scanPunishmentRows(rows pgx.Rows) ([]map[string]interface{}, error) {
 			"steamid":         steamid,
 			"name":            name,
 			"admin":           admin,
+			"admin_name":      admin,
 			"admin_steamid":   adminSteam,
 			"reason":          reason,
 			"status":          status,
 			"duration":        duration,
 			"created":         created,
+			"time":            time.Unix(created, 0).Format("2006-01-02T15:04:05Z"),
 			"expires":         expires,
 			"updated_at":      fmt.Sprintf("%v", updatedAt),
 		})

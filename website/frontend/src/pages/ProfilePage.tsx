@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useParams } from 'react-router-dom';
 import {
-  UserCircle, Shield, Key, ExternalLink, Check, X, Award, User,
+  UserCircle, Shield, Key, ExternalLink, Check, X, Award, User, Loader2,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { api } from '../services/api';
 
 const permissionLabels: Record<string, string> = {
   'staff.manage': 'Управление стаффом',
@@ -21,6 +23,7 @@ const permissionLabels: Record<string, string> = {
 
 const roleBadgeColors: Record<string, string> = {
   OWNER: 'bg-red-500/20 text-red-400 border-red-500/30',
+  OWNER_ALT: 'bg-red-600/20 text-red-400 border-red-600/30',
   GLADMIN: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
   STADMIN: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   ADMIN: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
@@ -32,27 +35,79 @@ const roleBadgeColors: Record<string, string> = {
   USER: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
 };
 
-type TabId = 'overview' | 'account' | 'permissions';
-
-const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'overview', label: 'Обзор', icon: User },
-  { id: 'account', label: 'Аккаунт', icon: Shield },
-  { id: 'permissions', label: 'Права', icon: Key },
-];
+interface PublicUser {
+  discord_id: string;
+  username: string;
+  display_name?: string;
+  avatar?: string;
+  staff_group?: string;
+  staff_role?: string;
+  steam_id?: string;
+  level?: number;
+  guild_roles?: string[];
+  last_login?: string;
+  permissions?: string[];
+}
 
 export default function ProfilePage() {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const { user: me } = useAuth();
+  const { id } = useParams<{ id?: string }>();
+  const isPublic = Boolean(id);
+  const [user, setUser] = useState<PublicUser | null>(null);
+  const [loading, setLoading] = useState(isPublic);
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'account' | 'permissions'>('overview');
 
-  if (!user) return null;
+  useEffect(() => {
+    if (!isPublic) {
+      if (me) setUser(me as unknown as PublicUser);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    api.getPublicProfile(id!)
+      .then((res: any) => {
+        setUser(res.user || null);
+        setError('');
+      })
+      .catch((e) => {
+        setUser(null);
+        setError(e.message || 'Профиль не найден');
+      })
+      .finally(() => setLoading(false));
+  }, [id, me, isPublic]);
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-4xl mx-auto text-center py-12">
+        <p className="text-gray-500">{error || 'Профиль не найден'}</p>
+      </div>
+    );
+  }
 
   const discordAvatar = user.avatar
     ? `https://cdn.discordapp.com/avatars/${user.discord_id}/${user.avatar}.png?size=256`
     : null;
 
-  const tabButtonClass = (id: TabId) =>
+  const tabs = isPublic
+    ? [{ id: 'overview' as const, label: 'Обзор', icon: User }]
+    : [
+        { id: 'overview' as const, label: 'Обзор', icon: User },
+        { id: 'account' as const, label: 'Аккаунт', icon: Shield },
+        { id: 'permissions' as const, label: 'Права', icon: Key },
+      ];
+
+  const tabButtonClass = (tabId: string) =>
     `px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-      activeTab === id
+      activeTab === tabId
         ? 'bg-indigo-500/30 text-indigo-300'
         : 'bg-white/5 text-gray-400 hover:bg-white/10'
     }`;
@@ -61,7 +116,7 @@ export default function ProfilePage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="mb-6">
         <h1 className="text-3xl font-bold text-white">Профиль</h1>
-        <p className="text-gray-400 text-sm">Управление аккаунтом и правами</p>
+        <p className="text-gray-400 text-sm">{isPublic ? 'Публичный профиль стаффа' : 'Управление аккаунтом и правами'}</p>
       </header>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -159,7 +214,7 @@ export default function ProfilePage() {
                   className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-xl text-sm font-semibold"
                 >
                   <Award className="w-4 h-4" />
-                  Level {user.level}
+                  Level {user.level || 0}
                 </motion.span>
               </div>
             </div>
@@ -173,7 +228,7 @@ export default function ProfilePage() {
           >
             <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
               <Shield className="w-5 h-5 text-purple-400" />
-              Discord Roles
+              Discord роли
             </h2>
             <div className="flex flex-wrap gap-2">
               {user.guild_roles && user.guild_roles.length > 0 ? (
@@ -186,14 +241,14 @@ export default function ProfilePage() {
                   </span>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No Discord roles loaded</p>
+                <p className="text-gray-500 text-sm">Discord роли не загружены</p>
               )}
             </div>
           </motion.div>
         </>
       )}
 
-      {activeTab === 'account' && (
+      {!isPublic && activeTab === 'account' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -206,8 +261,7 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <InfoRow label="Discord ID" value={user.discord_id} />
             <InfoRow label="Username" value={user.username} />
-            {user.email && <InfoRow label="Email" value={user.email} />}
-            {user.steam_id && <InfoRow label="SteamID" value={user.steam_id} mono />}
+            <InfoRow label="SteamID" value={user.steam_id} mono />
             {user.last_login && (
               <InfoRow
                 label="Last Login"
@@ -218,7 +272,7 @@ export default function ProfilePage() {
         </motion.div>
       )}
 
-      {activeTab === 'permissions' && (
+      {!isPublic && activeTab === 'permissions' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

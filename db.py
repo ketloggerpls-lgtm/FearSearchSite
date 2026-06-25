@@ -127,9 +127,38 @@ def _init_table():
                     playtime INTEGER,
                     ban_is_banned BOOLEAN,
                     vip_is_vip BOOLEAN,
+                    faceit_level INTEGER,
+                    faceit_elo INTEGER,
+                    report_count INTEGER DEFAULT 0,
                     raw_json JSONB,
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE profiles ADD COLUMN IF NOT EXISTS faceit_level INTEGER
+            """)
+            cur.execute("""
+                ALTER TABLE profiles ADD COLUMN IF NOT EXISTS faceit_elo INTEGER
+            """)
+            cur.execute("""
+                ALTER TABLE profiles ADD COLUMN IF NOT EXISTS report_count INTEGER DEFAULT 0
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    id BIGINT PRIMARY KEY,
+                    steamid TEXT NOT NULL,
+                    intruder_name TEXT,
+                    intruder_avatar TEXT,
+                    sender TEXT,
+                    sender_steamid TEXT,
+                    reason TEXT,
+                    created_at TIMESTAMPTZ,
+                    raw_json JSONB,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_reports_steamid ON reports(steamid)
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS punishments (
@@ -358,8 +387,8 @@ def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: st
                     INSERT INTO vdf_history
                         (check_id, steamid, nickname, fear_banned, fear_reason, fear_unban_time,
                          vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason,
-                         admin_group, config_hash, filename, attachment_url, message_url, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         admin_group, config_hash, filename, attachment_url, message_url, on_fear, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """, (
                     check_id,
                     r.get("steamid", ""),
@@ -380,6 +409,7 @@ def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: st
                     filename,
                     attachment_url,
                     message_url,
+                    r.get("on_fear", False),
                 ))
         return True
     except Exception as e:
@@ -746,6 +776,7 @@ def db_upsert_profile(profile: dict) -> bool:
         ban_info = profile.get("banInfo") or {}
         vip_info = profile.get("vipInfo") or {}
         discord = profile.get("discord") or {}
+        faceit = profile.get("faceitLevel") or {}
         discord_nickname = (
             profile.get("discordNickname")
             or profile.get("discord_nickname")
@@ -764,14 +795,15 @@ def db_upsert_profile(profile: dict) -> bool:
             cur.execute("""
                 INSERT INTO profiles (
                     steamid, name, last_activity, avatar_full, discord_nickname, discord_id,
-                    rank, kills, deaths, playtime, ban_is_banned, vip_is_vip, raw_json, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    rank, kills, deaths, playtime, ban_is_banned, vip_is_vip, faceit_level, faceit_elo, raw_json, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (steamid) DO UPDATE SET
                     name = EXCLUDED.name, last_activity = EXCLUDED.last_activity,
                     avatar_full = EXCLUDED.avatar_full, discord_nickname = EXCLUDED.discord_nickname,
                     discord_id = EXCLUDED.discord_id, rank = EXCLUDED.rank,
                     kills = EXCLUDED.kills, deaths = EXCLUDED.deaths, playtime = EXCLUDED.playtime,
                     ban_is_banned = EXCLUDED.ban_is_banned, vip_is_vip = EXCLUDED.vip_is_vip,
+                    faceit_level = EXCLUDED.faceit_level, faceit_elo = EXCLUDED.faceit_elo,
                     raw_json = EXCLUDED.raw_json, updated_at = NOW()
             """, (
                 steamid,
@@ -786,11 +818,70 @@ def db_upsert_profile(profile: dict) -> bool:
                 stats.get("playtime"),
                 bool(ban_info.get("isBanned", False)),
                 bool(vip_info.get("isVip", False)),
+                faceit.get("level") if isinstance(faceit, dict) else None,
+                faceit.get("elo") if isinstance(faceit, dict) else None,
                 json.dumps(profile, ensure_ascii=False, default=str),
             ))
         return True
     except Exception as e:
         logger.error(f"[DB] Ошибка upsert_profile {steamid}: {e}")
+        return False
+
+
+def db_upsert_reports(reports: list[dict]) -> bool:
+    """Сохранить/обновить репорты в БД."""
+    conn = _get_conn()
+    if not conn or not reports:
+        return False
+    try:
+        with conn.cursor() as cur:
+            for r in reports:
+                rid = r.get("id")
+                if not rid:
+                    continue
+                intruder = r.get("intruder") or {}
+                if isinstance(intruder, str):
+                    intruder_name = intruder
+                    intruder_steamid = r.get("intruder_steamid") or r.get("steamid") or ""
+                    intruder_avatar = r.get("intruder_avatar") or ""
+                else:
+                    intruder_name = intruder.get("name") or r.get("intruder_name") or ""
+                    intruder_steamid = intruder.get("steamid") or r.get("intruder_steamid") or r.get("steamid") or ""
+                    intruder_avatar = intruder.get("avatar") or r.get("intruder_avatar") or ""
+                sender = r.get("sender") or {}
+                if isinstance(sender, str):
+                    sender_name = sender
+                    sender_steamid = r.get("sender_steamid") or ""
+                else:
+                    sender_name = sender.get("name") or r.get("sender_name") or ""
+                    sender_steamid = sender.get("steamid") or r.get("sender_steamid") or ""
+                cur.execute("""
+                    INSERT INTO reports (id, steamid, intruder_name, intruder_avatar, sender, sender_steamid, reason, created_at, raw_json, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        steamid = EXCLUDED.steamid,
+                        intruder_name = EXCLUDED.intruder_name,
+                        intruder_avatar = EXCLUDED.intruder_avatar,
+                        sender = EXCLUDED.sender,
+                        sender_steamid = EXCLUDED.sender_steamid,
+                        reason = EXCLUDED.reason,
+                        created_at = EXCLUDED.created_at,
+                        raw_json = EXCLUDED.raw_json,
+                        updated_at = NOW()
+                """, (
+                    rid,
+                    intruder_steamid,
+                    intruder_name,
+                    intruder_avatar,
+                    sender_name,
+                    sender_steamid,
+                    r.get("reason") or "",
+                    r.get("created_at") or None,
+                    json.dumps(r, ensure_ascii=False, default=str),
+                ))
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка upsert_reports: {e}")
         return False
 
 
@@ -1035,3 +1126,20 @@ def db_get_recheck_result(recheck_id: int) -> dict:
     except Exception as e:
         logger.error(f"[DB] Ошибка get_recheck_result: {e}")
         return {}
+
+
+def LogService(service: str, level: str, message: str, data: dict | None = None) -> bool:
+    """Записать лог в общую таблицу app_logs."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO app_logs (service, level, message, data, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+            """, (service, level, message[:2000], json.dumps(data) if data else None))
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка записи лога: {e}")
+        return False
