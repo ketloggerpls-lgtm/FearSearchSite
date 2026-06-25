@@ -17,10 +17,11 @@
 ## Структура
 
 ```
-checker sait vdf/
+checker/
 ├── backend/
 │   ├── app.py              # FastAPI сервер
-│   └── requirements.txt    # Зависимости
+│   ├── requirements.txt    # Зависимости
+│   └── Procfile            # Команда запуска для Railway
 └── frontend/
     ├── index.html          # Главная страница
     └── static/
@@ -34,7 +35,7 @@ checker sait vdf/
 ### Локально (Python)
 
 ```bash
-cd "checker sait vdf/backend"
+cd backend
 pip install -r requirements.txt
 # Опционально: создай .env в корне проекта с DATABASE_URL и STEAM_API_KEY
 python app.py
@@ -44,7 +45,7 @@ python app.py
 
 ### Railway / Docker
 
-Развёртывание идёт из папки `checker sait vdf/backend`. Необходимые переменные окружения:
+Развёртывание идёт из папки `backend`. В Railway укажи **Root Directory**: `backend`. Необходимые переменные окружения:
 
 - `DATABASE_URL` — PostgreSQL, общая база с сайтом (обязательно для сохранения истории)
 - `STEAM_API_KEY` — ключ Steam Web API
