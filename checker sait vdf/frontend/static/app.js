@@ -136,7 +136,7 @@ function showResults(results, checkId, saved) {
         results.sort((a, b) => getScore(b) - getScore(a));
 
         const total = results.length;
-        const banned = results.filter(r => r.fearBanned || r.vacBanned || r.gameBans > 0 || r.yoomaFound).length;
+        const banned = results.filter(r => r.fearBanned || r.yoomaFound).length;
         const notFear = results.filter(r => !r.onFear).length;
         const clean = total - banned;
 
@@ -169,8 +169,9 @@ function getScore(r) {
     let s = 0;
     if (r.fearBanned) s += 100;
     if (r.yoomaFound) s += 80;
-    if (r.vacBanned) s += 60;
-    if (r.gameBans > 0) s += 50;
+    // VAC/Game — это предупреждения, а не баны
+    if (r.vacBanned) s += 5;
+    if (r.gameBans > 0) s += 5;
     if (!r.onFear) s += 10;
     return s;
 }
@@ -203,12 +204,12 @@ function makeCard(r, idx) {
         }
 
         if (r.vacBanned) {
-            details.push({ label: 'VAC', text: vacText(r.vacDays), type: 'banned' });
+            details.push({ label: 'VAC', text: vacText(r.vacDays), type: 'warning' });
         }
 
         if (r.gameBans > 0) {
             const w = r.gameBans === 1 ? 'бан' : (r.gameBans < 5 ? 'бана' : 'банов');
-            details.push({ label: 'Game', text: r.gameBans + ' ' + w, type: 'banned' });
+            details.push({ label: 'Game', text: r.gameBans + ' ' + w, type: 'warning' });
         }
 
         if (!details.length) {
