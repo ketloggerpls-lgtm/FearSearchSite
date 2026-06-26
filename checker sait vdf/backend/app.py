@@ -45,6 +45,11 @@ http_client = httpx.AsyncClient(
     limits=httpx.Limits(max_connections=100),
 )
 
+# In-memory caches for fast VDF checks (TTL 5 minutes)
+_yooma_cache: dict[str, tuple[dict, float]] = {}
+_fear_cache: dict[str, tuple[dict | None, float]] = {}
+CACHE_TTL = 300
+
 # ── PostgreSQL helpers ───────────────────────────────────────────────────────
 
 _db_pool = None
@@ -287,6 +292,11 @@ async def check_steam_batch(steamids: List[str]) -> dict:
 
 
 async def check_fear(steamid: str) -> dict | None:
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _fear_cache.get(steamid)
+    if cached and now - cached[1] < CACHE_TTL:
+        return cached[0]
+
     url = f"{FEAR_API_BASE}/profile/{steamid}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -295,7 +305,9 @@ async def check_fear(steamid: str) -> dict | None:
     try:
         r = await http_client.get(url, headers=headers, timeout=httpx.Timeout(8.0, connect=5.0))
         if r.status_code == 200:
-            return r.json()
+            data = r.json()
+            _fear_cache[steamid] = (data, now)
+            return data
     except Exception as e:
         logger.debug(f"[Fear] profile error for {steamid}: {e}")
     return None
@@ -312,6 +324,11 @@ def _msk_from_timestamp(ts: int) -> str:
 
 
 async def check_yooma(steamid: str) -> dict:
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _yooma_cache.get(steamid)
+    if cached and now - cached[1] < CACHE_TTL:
+        return cached[0]
+
     params = {"punish_type": 0, "search": steamid, "page": 1, "mobile": 1}
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -320,20 +337,27 @@ async def check_yooma(steamid: str) -> dict:
         "Origin": "https://yooma.su",
     }
     try:
+        # yooma.su часто висит — 7 секунд вместо 15
         r = await http_client.get(
             YOOMA_API,
             params=params,
             headers=headers,
-            timeout=httpx.Timeout(15.0, connect=5.0),
+            timeout=httpx.Timeout(7.0, connect=5.0),
         )
         if r.status_code != 200:
-            return {"found": False, "punishments": []}
+            result = {"found": False, "punishments": []}
+            _yooma_cache[steamid] = (result, now)
+            return result
         data = r.json()
         if not data or not data.get("ok"):
-            return {"found": False, "punishments": []}
+            result = {"found": False, "punishments": []}
+            _yooma_cache[steamid] = (result, now)
+            return result
         punishments = data.get("punishments", [])
         if not punishments:
-            return {"found": False, "punishments": []}
+            result = {"found": False, "punishments": []}
+            _yooma_cache[steamid] = (result, now)
+            return result
 
         now_ts = datetime.now(timezone.utc).timestamp()
         processed = []
@@ -371,14 +395,16 @@ async def check_yooma(steamid: str) -> dict:
                 "expires_ts": expires_ts,
                 "profile_url": f"https://yooma.su/ru/profile/{steamid}",
             })
-        return {"found": len(processed) > 0, "punishments": processed}
+        result = {"found": len(processed) > 0, "punishments": processed}
+        _yooma_cache[steamid] = (result, now)
+        return result
     except Exception as e:
         logger.error(f"[Yooma] error for {steamid}: {e}")
         return {"found": False, "punishments": []}
 
 
 async def check_accounts(steamids: List[str]) -> List[dict]:
-    """Check accounts like the bot: Steam + Fear + Yooma."""
+    """Check accounts like the bot: Steam + Fear + Yooma in parallel."""
     steamids = list(dict.fromkeys(steamids))
 
     bans_map = {}
@@ -389,59 +415,68 @@ async def check_accounts(steamids: List[str]) -> List[dict]:
         bans_map.update(res.get("bans", {}))
         summaries_map.update(res.get("summaries", {}))
 
-    sem = asyncio.Semaphore(25)
+    # Раздельные семафоры, чтобы Fear и Yooma не блокировали друг друга
+    fear_sem = asyncio.Semaphore(50)
+    yooma_sem = asyncio.Semaphore(50)
+
+    async def check_fear_sem(sid: str) -> dict | None:
+        async with fear_sem:
+            return await check_fear(sid)
+
+    async def check_yooma_sem(sid: str) -> dict:
+        async with yooma_sem:
+            return await check_yooma(sid)
 
     async def check_one(sid: str) -> dict:
-        async with sem:
-            fear, yooma = await asyncio.gather(check_fear(sid), check_yooma(sid))
-            steam_ban = bans_map.get(sid, {})
-            summary = summaries_map.get(sid, {})
+        fear, yooma = await asyncio.gather(check_fear_sem(sid), check_yooma_sem(sid))
+        steam_ban = bans_map.get(sid, {})
+        summary = summaries_map.get(sid, {})
 
-            vac_banned = steam_ban.get("VACBanned", False)
-            vac_days = steam_ban.get("DaysSinceLastBan", 0)
-            game_bans = steam_ban.get("NumberOfGameBans", 0)
-            community_ban = steam_ban.get("CommunityBanned", False)
-            nickname = summary.get("personaname", sid)
-            avatar = summary.get("avatarfull") or summary.get("avatar") or ""
+        vac_banned = steam_ban.get("VACBanned", False)
+        vac_days = steam_ban.get("DaysSinceLastBan", 0)
+        game_bans = steam_ban.get("NumberOfGameBans", 0)
+        community_ban = steam_ban.get("CommunityBanned", False)
+        nickname = summary.get("personaname", sid)
+        avatar = summary.get("avatarfull") or summary.get("avatar") or ""
 
-            on_fear = fear is not None
-            fear_name = fear.get("name", "") if fear else ""
-            ban_info = fear.get("banInfo", {}) if fear else {}
-            fear_banned = ban_info.get("isBanned", False)
-            fear_reason = ban_info.get("reason", "") if fear_banned else ""
-            fear_unban_ts = ban_info.get("unbanTimestamp") if fear_banned else None
-            fear_unban = ""
-            if fear_unban_ts:
-                try:
-                    fear_unban = datetime.fromtimestamp(fear_unban_ts).strftime("%d.%m.%Y %H:%M")
-                except Exception:
-                    pass
+        on_fear = fear is not None
+        fear_name = fear.get("name", "") if fear else ""
+        ban_info = fear.get("banInfo", {}) if fear else {}
+        fear_banned = ban_info.get("isBanned", False)
+        fear_reason = ban_info.get("reason", "") if fear_banned else ""
+        fear_unban_ts = ban_info.get("unbanTimestamp") if fear_banned else None
+        fear_unban = ""
+        if fear_unban_ts:
+            try:
+                fear_unban = datetime.fromtimestamp(fear_unban_ts).strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                pass
 
-            ag = fear.get("adminGroup") if fear else None
-            admin_group = ""
-            if isinstance(ag, dict):
-                admin_group = ag.get("group_name", "")
-            if not admin_group or str(admin_group).isdigit():
-                admin_group = (fear or {}).get("rank_name", "") if fear else ""
-            if not admin_group or str(admin_group).isdigit():
-                admin_group = (fear or {}).get("rank", "") if fear else ""
+        ag = fear.get("adminGroup") if fear else None
+        admin_group = ""
+        if isinstance(ag, dict):
+            admin_group = ag.get("group_name", "")
+        if not admin_group or str(admin_group).isdigit():
+            admin_group = (fear or {}).get("rank_name", "") if fear else ""
+        if not admin_group or str(admin_group).isdigit():
+            admin_group = (fear or {}).get("rank", "") if fear else ""
 
-            return {
-                "steamid": sid,
-                "nickname": fear_name or nickname or sid,
-                "avatar": avatar,
-                "on_fear": on_fear,
-                "fear_banned": fear_banned,
-                "fear_reason": fear_reason,
-                "fear_unban": fear_unban,
-                "fear_unban_ts": fear_unban_ts,
-                "vac_banned": vac_banned,
-                "vac_days": vac_days,
-                "game_bans": game_bans,
-                "community_ban": community_ban,
-                "yooma_data": yooma,
-                "admin_group": admin_group,
-            }
+        return {
+            "steamid": sid,
+            "nickname": fear_name or nickname or sid,
+            "avatar": avatar,
+            "on_fear": on_fear,
+            "fear_banned": fear_banned,
+            "fear_reason": fear_reason,
+            "fear_unban": fear_unban,
+            "fear_unban_ts": fear_unban_ts,
+            "vac_banned": vac_banned,
+            "vac_days": vac_days,
+            "game_bans": game_bans,
+            "community_ban": community_ban,
+            "yooma_data": yooma,
+            "admin_group": admin_group,
+        }
 
     return await asyncio.gather(*[check_one(sid) for sid in steamids])
 

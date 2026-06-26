@@ -774,10 +774,9 @@ def _safe_url(url: str) -> str:
     except Exception:
         return "<url>"
 
-async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = None, headers: dict = None):
+async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = None, headers: dict = None, timeout_total: int = 15, max_retries: int = 3):
     safe = _safe_url(url)
-    # Увеличиваем таймаут до 25 секунд для медленных сайтов типа yooma.su
-    timeout = aiohttp.ClientTimeout(total=15)
+    timeout = aiohttp.ClientTimeout(total=timeout_total)
     last_status = None
     last_err = None
 
@@ -790,7 +789,7 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = N
     if headers:
         actual_headers.update(headers)
 
-    for attempt in range(3):
+    for attempt in range(max_retries):
         try:
             async with session.get(url, params=params, headers=actual_headers, timeout=timeout) as r:
                 last_status = r.status
@@ -800,7 +799,7 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = N
                     except Exception as je:
                         # Если не JSON, пробуем текст
                         text = await r.text()
-                        if attempt == 2:
+                        if attempt == max_retries - 1:
                             _log(f"⚠️ [HTTP] Ошибка парсинга JSON с {safe}: {je}. Ответ: {text[:100]}...", discord=False)
                         continue
                 
@@ -814,19 +813,19 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = N
                     _log(f"⚠️ HTTP 429 {safe}. Waiting {wait_s:.1f}s...")
                     await asyncio.sleep(min(max(wait_s, 1.0), 30.0))
                     continue
-                
                 # Если 404 или 403 — не повторяем, скорее всего путь неверный или бан
                 if r.status in (403, 404):
                     break
 
-                if r.status >= 500 and attempt < 2:
+                if r.status >= 500 and attempt < max_retries - 1:
                     await asyncio.sleep(1.0 * (attempt + 1))
                     continue
-                
+
                 break
+
         except Exception as e:
             last_err = e
-            if attempt < 2:
+            if attempt < max_retries - 1:
                 await asyncio.sleep(1.0 * (attempt + 1))
                 continue
             break
@@ -4794,7 +4793,31 @@ async def cmd_findstaff(interaction: discord.Interaction, query: str):
 
     results = await _search_in_data()
 
-    # ── Шаг 2: Если не нашли — ищем по ингейм нику из Steam через Fear API ──
+    # ── Шаг 2: Если не нашли — обновляем кэш админов и ищем снова ──
+    if not results:
+        await interaction.edit_original_response(
+            content=f"🔍 `{query}` не найден в локальной базе. Обновляю список админов..."
+        )
+
+        try:
+            sync_result = await _sync_staff_list()
+            if sync_result and not sync_result.get("error"):
+                _log(
+                    f"✅ /find обновил базу: стаффов {sync_result.get('total', 0)}, "
+                    f"админов {sync_result.get('admins_total', 0)}, новых {sync_result.get('new', 0)}, "
+                    f"обновлено {sync_result.get('updated', 0)}",
+                    discord=False
+                )
+                results = await _search_in_data()
+            else:
+                _log(
+                    f"⚠️ /find не удалось обновить базу: {sync_result.get('error') if sync_result else 'unknown'}",
+                    discord=False
+                )
+        except Exception as e:
+            _log(f"❌ /find ошибка обновления базы: {e}", discord=False)
+
+    # ── Шаг 3: Если всё ещё не нашли — ищем по ингейм нику через Fear API ──
     if not results:
         await interaction.edit_original_response(
             content=f"🔍 `{query}` не найден в локальной базе. Проверяю ингейм ники через Fear API..."
@@ -8827,7 +8850,14 @@ def _parse_vdf_steamids(text: str) -> list[str]:
 
 _fear_profile_cache: dict = {}
 
-# Семафор: не более 20 VDF проверок одновременно
+# Кэш для быстрых VDF-проверок (SteamID -> (data, timestamp))
+_yooma_cache: dict[str, tuple[dict, float]] = {}
+YOOMA_CACHE_TTL = 300
+
+_fear_fast_cache: dict[str, tuple[dict | None, float]] = {}
+FEAR_FAST_CACHE_TTL = 300
+
+# Семафор: не более 100 VDF проверок одновременно
 _vdf_semaphore = asyncio.Semaphore(100)
 # Кэш Fear профилей для VDF (чтобы не дёргать API повторно для одних и тех же SteamID)
 _vdf_fear_cache: dict = {}
@@ -9045,7 +9075,12 @@ async def _fetch_fear_profile(session: aiohttp.ClientSession, steamid: str, retr
 
 
 async def _fetch_fear_fast(session: aiohttp.ClientSession, steamid: str) -> dict | None:
-    """Быстрый запрос Fear API для VDF-проверок: таймаут 8с, 1 попытка."""
+    """Быстрый запрос Fear API для VDF-проверок: таймаут 8с, 1 попытка, кэш 5 минут."""
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _fear_fast_cache.get(steamid)
+    if cached and now - cached[1] < FEAR_FAST_CACHE_TTL:
+        return cached[0]
+
     url = f"{API_BASE}/profile/{steamid}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -9055,7 +9090,9 @@ async def _fetch_fear_fast(session: aiohttp.ClientSession, steamid: str) -> dict
         timeout = aiohttp.ClientTimeout(total=8)
         async with session.get(url, headers=headers, timeout=timeout) as r:
             if r.status == 200:
-                return await r.json(content_type=None)
+                data = await r.json(content_type=None)
+                _fear_fast_cache[steamid] = (data, now)
+                return data
     except Exception:
         pass
     return None
@@ -9074,34 +9111,48 @@ async def _fetch_fear_ban_check(session: aiohttp.ClientSession, steamid: str, re
     return None
 
 async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
-    """Проверяет аккаунты через Fear API и Steam API."""
+    """Проверяет аккаунты через Fear, Steam и Yooma API параллельно с ограничением параллелизма."""
     results = []
     async with aiohttp.ClientSession() as session:
-        # Steam GetPlayerBans + GetPlayerSummaries — параллельно батчами по 100
-        bans_tasks    = []
+        # Steam API — батчами по 100
+        bans_tasks = []
         summary_tasks = []
         for i in range(0, len(steamids), 100):
             batch = steamids[i:i+100]
-            ids   = ','.join(batch)
+            ids = ','.join(batch)
             bans_tasks.append(_fetch_json(session,
                 f"https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key={STEAM_API_KEY}&steamids={ids}"))
             summary_tasks.append(_fetch_json(session,
                 f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={ids}"))
 
-        yooma_tasks = [_check_yooma_ban(session, sid) for sid in steamids]
-        yooma_results_raw = await asyncio.gather(*yooma_tasks)
-        yooma_map = {sid: ydata for sid, ydata in zip(steamids, yooma_results_raw)}
-
-        bans_results, summary_results = await asyncio.gather(
+        steam_future = asyncio.gather(
             asyncio.gather(*bans_tasks),
             asyncio.gather(*summary_tasks)
+        )
+
+        # Yooma — с семафором 50 и кэшем 5 минут
+        yooma_sem = asyncio.Semaphore(50)
+        async def yooma_with_sem(sid: str):
+            async with yooma_sem:
+                return await _check_yooma_ban(session, sid)
+        yooma_future = asyncio.gather(*[yooma_with_sem(sid) for sid in steamids])
+
+        # Fear — с семафором 50 и кэшем 5 минут
+        fear_sem = asyncio.Semaphore(50)
+        async def fear_with_sem(sid: str):
+            async with fear_sem:
+                return await _fetch_fear_fast(session, sid)
+        fear_future = asyncio.gather(*[fear_with_sem(sid) for sid in steamids])
+
+        # Все источники — параллельно
+        (bans_results, summary_results), yooma_results_raw, fear_profiles = await asyncio.gather(
+            steam_future, yooma_future, fear_future
         )
 
         bans_map = {}
         for data in bans_results:
             if data and "players" in data:
                 for p in data["players"]:
-                    # Steam API возвращает SteamId (с маленькой d)
                     sid_key = p.get("SteamId") or p.get("SteamID") or p.get("steamid") or p.get("steamID", "")
                     if sid_key:
                         bans_map[str(sid_key)] = p
@@ -9112,9 +9163,7 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
                 for p in data["response"]["players"]:
                     summary_map[p["steamid"]] = p
 
-        # Fear API — только профиль (banInfo = 100% ответ)
-        fear_tasks = [_fetch_fear_fast(session, sid) for sid in steamids]
-        fear_profiles = await asyncio.gather(*fear_tasks)
+        yooma_map = {sid: ydata for sid, ydata in zip(steamids, yooma_results_raw)}
         fear_map = {sid: profile for sid, profile in zip(steamids, fear_profiles)}
 
         for sid in steamids:
@@ -9172,7 +9221,13 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
 async def _check_yooma_ban(session: aiohttp.ClientSession, steamid: str, nickname: str = "") -> dict:
     """
     Проверяет наличие банов на yooma.su для указанного SteamID.
+    Использует кэш 5 минут и короткий таймаут, чтобы не тормозить VDF-проверки.
     """
+    now = datetime.now(timezone.utc).timestamp()
+    cached = _yooma_cache.get(steamid)
+    if cached and now - cached[1] < YOOMA_CACHE_TTL:
+        return cached[0]
+
     url = f"https://yooma.su/api/public/read/punishments?punish_type=0&search={steamid}&page=1&mobile=1"
     try:
         headers = {
@@ -9181,13 +9236,18 @@ async def _check_yooma_ban(session: aiohttp.ClientSession, steamid: str, nicknam
             "Referer": "https://yooma.su/ru/punishments",
             "Origin": "https://yooma.su"
         }
-        data = await _fetch_json(session, url, headers=headers)
+        # yooma.su часто висит — используем 7 сек и 1 повтор вместо 15/3
+        data = await _fetch_json(session, url, headers=headers, timeout_total=7, max_retries=2)
         if not data or not data.get("ok"):
-            return {"found": False, "punishments": []}
+            result = {"found": False, "punishments": []}
+            _yooma_cache[steamid] = (result, now)
+            return result
 
         punishments = data.get("punishments", [])
         if not punishments:
-            return {"found": False, "punishments": []}
+            result = {"found": False, "punishments": []}
+            _yooma_cache[steamid] = (result, now)
+            return result
 
         now_ts = datetime.now(timezone.utc).timestamp()
         processed = []
@@ -9235,7 +9295,9 @@ async def _check_yooma_ban(session: aiohttp.ClientSession, steamid: str, nicknam
                 "profile_url": f"https://yooma.su/ru/profile/{steamid}",
             })
 
-        return {"found": len(processed) > 0, "punishments": processed}
+        result = {"found": len(processed) > 0, "punishments": processed}
+        _yooma_cache[steamid] = (result, now)
+        return result
     except Exception as e:
         _log(f"ℹ️ yooma check {steamid}: {e}", discord=False)
         return {"found": False, "punishments": []}
@@ -9500,8 +9562,8 @@ async def on_message(message: discord.Message):
                         asyncio.gather(*summary_tasks)
                     )
 
-                    # Yooma — параллельно со всем
-                    yooma_sem = asyncio.Semaphore(100)
+                    # Yooma — с семафором 50 и кэшем 5 минут
+                    yooma_sem = asyncio.Semaphore(50)
                     async def yooma_with_sem(sid: str):
                         async with yooma_sem:
                             return await _check_yooma_ban(session, sid)
