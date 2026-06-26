@@ -1,7 +1,7 @@
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 import re
@@ -15,6 +15,7 @@ from typing import List
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
+import io
 
 # Load .env from project root if present (local dev)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -549,6 +550,38 @@ async def check_vdf(files: List[UploadFile] = File(...)):
         "check_id": check_id,
         "saved": saved,
     }
+
+
+@app.get("/api/download-vdf/{check_id}")
+async def download_vdf(check_id: int):
+    conn = _get_db()
+    if not conn:
+        raise HTTPException(500, "База данных недоступна")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT ch.content, ch.filename
+                FROM config_hashes ch
+                JOIN vdf_history vh ON vh.config_hash = ch.config_hash
+                WHERE vh.check_id = %s
+                LIMIT 1
+            """, (check_id,))
+            row = cur.fetchone()
+            if not row or not row.get("content"):
+                raise HTTPException(404, "VDF-файл не найден")
+        filename = row.get("filename") or f"check_{check_id}.vdf"
+        if not filename.lower().endswith(".vdf"):
+            filename += ".vdf"
+        return StreamingResponse(
+            io.BytesIO(row["content"].encode("utf-8")),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Download VDF] ошибка: {e}")
+        raise HTTPException(500, "Ошибка при скачивании VDF")
 
 
 @app.get("/")

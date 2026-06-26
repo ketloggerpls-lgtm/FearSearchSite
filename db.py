@@ -308,18 +308,26 @@ def db_is_available() -> bool:
     return _pool is not None and not _pool.closed
 
 
-def db_save_config_accounts(config_hash: str, steamids: list[str], filename: str = "") -> bool:
-    """Сохранить связь конфига (по хэшу) со списком SteamID."""
+def db_save_config_accounts(config_hash: str, steamids: list[str], filename: str = "", content: str = "") -> bool:
+    """Сохранить связь конфига (по хэшу) со списком SteamID и опционально содержимым файла."""
     conn = _get_conn()
     if not conn:
         return False
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO config_hashes (config_hash, filename, created_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (config_hash) DO UPDATE SET filename = EXCLUDED.filename
-            """, (config_hash, filename))
+            if content:
+                cur.execute("""
+                    INSERT INTO config_hashes (config_hash, filename, content, created_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (config_hash) DO UPDATE
+                    SET filename = EXCLUDED.filename, content = EXCLUDED.content
+                """, (config_hash, filename, content))
+            else:
+                cur.execute("""
+                    INSERT INTO config_hashes (config_hash, filename, created_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (config_hash) DO UPDATE SET filename = EXCLUDED.filename
+                """, (config_hash, filename))
             for sid in steamids:
                 cur.execute("""
                     INSERT INTO config_accounts (config_hash, steamid, created_at)
@@ -480,6 +488,31 @@ def db_get_vdf_history_by_steamid(steamid: str, limit: int = 50) -> list[dict]:
     except Exception as e:
         logger.error(f"[DB] Ошибка получения vdf_history по steamid: {e}")
         return []
+
+
+def db_get_vdf_content_by_check_id(check_id: int) -> tuple[str, str] | None:
+    """Получить оригинальное содержимое .vdf файла и его имя по check_id."""
+    conn = _get_conn()
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT ch.content, ch.filename
+                FROM config_hashes ch
+                JOIN vdf_history vh ON vh.config_hash = ch.config_hash
+                WHERE vh.check_id = %s
+                LIMIT 1
+            """, (check_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            content = row["content"] or ""
+            filename = row["filename"] or f"check_{check_id}.vdf"
+            return (content, filename)
+    except Exception as e:
+        logger.error(f"[DB] Ошибка получения содержимого VDF по check_id: {e}")
+        return None
 
 
 def _extract_yooma_reason(yooma_data: dict) -> str:

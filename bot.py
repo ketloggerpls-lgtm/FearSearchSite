@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 import traceback
 import signal
 import hashlib
+import io
 import db as _db
 
 load_dotenv()
@@ -4739,14 +4740,15 @@ async def cmd_findstaff(interaction: discord.Interaction, query: str):
         db = _load_staff_db()
         # ── Поиск по локальной базе стаффа ──
         for sid, entry in db.items():
+            sid_str = str(sid).strip()
             match = False
             if query_is_id:
-                if str(entry.get("discord_id") or "") == query_lower:
+                if str(entry.get("discord_id") or "") == query_lower or sid_str == query_lower:
                     match = True
             else:
                 discord_name = (entry.get("discord_name") or "").lower()
                 steam_name = (entry.get("name") or "").lower()
-                if query_lower in discord_name or query_lower in steam_name:
+                if query_lower in discord_name or query_lower in steam_name or query_lower == sid_str:
                     match = True
 
             if match:
@@ -4758,7 +4760,7 @@ async def cmd_findstaff(interaction: discord.Interaction, query: str):
                     "role": entry.get("role", "—"),
                     "source": "db",
                 })
-        
+
         # ── Поиск по кэшу ВСЕХ админов ──
         admins = _load_admins_cache()
         seen_sids = {r["steamid"] for r in results}
@@ -4766,19 +4768,19 @@ async def cmd_findstaff(interaction: discord.Interaction, query: str):
             sid = (admin.get("steamid") or "").strip()
             if not sid or sid in seen_sids:
                 continue
-            
+
             name = (admin.get("name") or "").lower()
             discord_name = (admin.get("discord_nickname") or "").lower()
             discord_id = str(admin.get("discord_id") or "").lower()
-            
+
             match = False
             if query_is_id:
-                if query_lower in name or query_lower in discord_name or query_lower == discord_id:
+                if query_lower == sid or query_lower == discord_id or query_lower in name or query_lower in discord_name:
                     match = True
             else:
-                if query_lower in name or query_lower in discord_name:
+                if query_lower in name or query_lower in discord_name or query_lower == sid:
                     match = True
-            
+
             if match:
                 results.append({
                     "steamid": sid,
@@ -4964,7 +4966,7 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
         steamids = [r.get("steamid") for r in results if r.get("steamid")]
         if steamids and vdf_text:
             config_hash = hashlib.sha256(vdf_text.encode("utf-8", errors="ignore")).hexdigest()[:64]
-            _db.db_save_config_accounts(config_hash, steamids, filename)
+            _db.db_save_config_accounts(config_hash, steamids, filename, vdf_text)
             _db.db_save_vdf_history(results, config_hash=config_hash, filename=filename, check_id=check_id,
                                     attachment_url=attachment_url, message_url=message_url)
     except Exception as e:
@@ -5141,79 +5143,47 @@ async def cmd_checkinfo(interaction: discord.Interaction, query: str):
         filename = check["filename"]
         ts = check["timestamp"]
 
+        banned = [r for r in results if r.get("fear_banned") or r.get("vac_banned") or (r.get("game_bans", 0) > 0) or ((r.get("yooma_data") or {}).get("found"))]
+        not_fear = [r for r in results if not r.get("on_fear")]
         registered = [r for r in results if r.get("on_fear")]
 
         embed = discord.Embed(
             title=f"📋 Проверка #{check_num} — {filename}",
-            description=f"Дата: {ts[:19].replace('T', ' ')} UTC\nВсего: **{len(results)}** | На Fear: **{len(registered)}**",
+            description=(
+                f"Дата: {ts[:19].replace('T', ' ')} UTC\n"
+                f"Всего: **{len(results)}** | На Fear: **{len(registered)}** | "
+                f"С банами: **{len(banned)}** | Нет на Fear: **{len(not_fear)}**"
+            ),
             color=0x5865f2,
             timestamp=datetime.now(timezone.utc)
         )
 
-        # Подтягиваем профили из Fear API для статистики
-        profiles_map = {}
-        if registered:
-            async with aiohttp.ClientSession() as session:
-                sem = asyncio.Semaphore(15)
-                async def fetch_profile(sid):
-                    async with sem:
-                        return sid, await _get_profile(session, sid)
-                fetch_results = await asyncio.gather(*[fetch_profile(r["steamid"]) for r in registered[:15]])
-                profiles_map = {sid: prof for sid, prof in fetch_results if prof}
-
-        for r in registered[:15]:
+        lines = []
+        for r in results:
             sid = r["steamid"]
             name = r.get("name", sid)
-            role = r.get("admin_group", "")
-            role_tag = f" [{role}]" if role else ""
-
-            fear_url = f"https://fearproject.ru/profile/{sid}"
-            steam_url = f"https://steamcommunity.com/profiles/{sid}"
-
-            profile = profiles_map.get(sid)
-            stats = profile.get("stats", {}) if profile else {}
-            playtime_h = round((stats.get("playtime", 0) or 0) / 3600, 1)
-            position = stats.get("position", "—")
-            balance = profile.get("balance", 0) if profile else 0
-            kills = stats.get("kills", 0)
-            deaths = stats.get("deaths", 0)
-            kd = round(kills / deaths, 2) if deaths else 0
-            ingame_name = (stats.get("name") or "").strip()
-
-            status_parts = []
-
-            fear_banned = r.get("fear_banned", False)
-            if fear_banned:
-                ban_info = f"🔨 Бан: {r.get('fear_reason', '')}"
-                if r.get("fear_unban"):
-                    ban_info += f" до {r['fear_unban']}"
-                status_parts.append(ban_info)
-
+            parts = ["✅ Fear" if r.get("on_fear") else "❌ Нет на Fear"]
+            if r.get("fear_banned"):
+                parts.append(f"Fear бан: {r.get('fear_reason', '')}" + (f" до {r['fear_unban']}" if r.get("fear_unban") else ""))
             if r.get("vac_banned"):
-                status_parts.append(f"🚫 VAC: {r.get('vac_days', '')} дн.")
+                parts.append(f"VAC: {r.get('vac_days', 0)} дн.")
             if r.get("community_ban"):
-                status_parts.append("⛔ Comm: бан")
-
+                parts.append("Comm: бан")
+            if r.get("game_bans", 0) > 0:
+                parts.append(f"Game банов: {r['game_bans']}")
             ydata = r.get("yooma_data") or {}
-            if ydata.get("found") and ydata.get("punishments"):
-                p = ydata["punishments"][0]
-                if p.get("status") == "active":
-                    status_parts.append(f"🔴 Yooma: {p.get('reason', '')}")
+            if ydata.get("found"):
+                active = [p for p in ydata.get("punishments", []) if p.get("status") == "active"]
+                if active:
+                    parts.append(f"Yooma: {active[0].get('reason', '')}")
+            lines.append(f"{name} ({sid}) — {' | '.join(parts)}")
 
-            stats_line = f"⏱️ {playtime_h}ч | 🏆 #{position} | 📈 K/D {kd} | 💰 {balance}₽"
-            status_str = f"\n{' • '.join(status_parts)}" if status_parts else ""
+        file_text = f"Проверка #{check_num} — {filename}\nДата: {ts}\nВсего: {len(results)}\n\n" + "\n".join(lines)
+        file_obj = io.BytesIO(file_text.encode("utf-8"))
+        file_obj.seek(0)
+        discord_file = discord.File(fp=file_obj, filename=f"check_{check_num}.txt")
 
-            name_display = ingame_name if ingame_name else name
-            line = (
-                f"**{name_display}**{role_tag} `{sid}` [{name}]({fear_url})\n"
-                f"{stats_line}{status_str}"
-            )
-            embed.add_field(name="", value=line, inline=False)
-
-        if len(registered) > 15:
-            embed.set_footer(text=f"Показано 15 из {len(registered)} зарегистрированных")
-
-        return await interaction.edit_original_response(content=None, embed=embed)
+        return await interaction.edit_original_response(content=None, embed=embed, attachments=[discord_file])
 
     # Поиск по SteamID
     target_sid = query
@@ -5301,6 +5271,41 @@ async def cmd_checkinfo(interaction: discord.Interaction, query: str):
     )
 
     await interaction.edit_original_response(content=None, embed=embed)
+
+
+@tree.command(name="vdfdownload", description="Скачать оригинальный .vdf файл из истории проверки")
+@app_commands.describe(check_id="Номер проверки (#1, #2...)")
+async def cmd_vdfdownload(interaction: discord.Interaction, check_id: str):
+    if not _is_admin(interaction):
+        return await interaction.response.send_message("❌ Нет прав.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+
+    num = None
+    if check_id.startswith("#"):
+        try:
+            num = int(check_id[1:])
+        except ValueError:
+            pass
+    else:
+        try:
+            num = int(check_id)
+        except ValueError:
+            pass
+
+    if not num:
+        return await interaction.edit_original_response(content="❌ Нужен номер проверки, например `#1`.")
+
+    res = _db.db_get_vdf_content_by_check_id(num)
+    if not res or not res[0]:
+        return await interaction.edit_original_response(
+            content=f"❌ VDF-файл для проверки #{num} не найден в БД. Возможно, он был загружен до добавления сохранения содержимого."
+        )
+
+    content, filename = res
+    file_obj = io.BytesIO(content.encode("utf-8"))
+    file_obj.seek(0)
+    discord_file = discord.File(fp=file_obj, filename=filename or f"check_{num}.vdf")
+    await interaction.edit_original_response(content=f"📁 Проверка #{num}", attachments=[discord_file])
 
 
 @tree.command(name="fulldrops", description="Полная таблица дропов: все страницы leaderboard, кто сколько получил")
