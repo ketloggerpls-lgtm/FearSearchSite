@@ -33,3 +33,4 @@ tracked_players.json
 vdf_checks.json
 watch_history.json
 whitelist.json
+logs.*.json
