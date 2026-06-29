@@ -387,6 +387,9 @@ def db_get_all_linked_steamids(steamid: str) -> list[str]:
 def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: str = "", check_id: int = 0,
                         attachment_url: str = "", message_url: str = "", source: str = "bot") -> bool:
     """Сохранить результаты VDF проверки в историю (по одному на каждый SteamID)."""
+    if check_id <= 0:
+        logger.error(f"[DB] Отказано в сохранении vdf_history: некорректный check_id={check_id}")
+        return False
     conn = _get_conn()
     if not conn:
         return False

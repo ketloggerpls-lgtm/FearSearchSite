@@ -5000,12 +5000,15 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
     global _vdf_check_counter
 
     # Используем общую последовательность БД, чтобы сайт и бот не пересекались по check_id
+    db_next = 0
     try:
         db_next = _db.db_get_next_vdf_check_id()
-        if db_next > 0:
-            _vdf_check_counter = db_next
     except Exception as e:
         print(f"⚠️ Ошибка получения next check_id из БД: {e}")
+
+    if db_next > 0:
+        _vdf_check_counter = db_next
+    else:
         # Fallback на локальный счётчик
         try:
             db_max = _db.db_get_max_vdf_check_id()
