@@ -9317,6 +9317,8 @@ async def _fetch_fear_fast(session: aiohttp.ClientSession, steamid: str) -> dict
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
     }
+    if FEAR_COOKIE:
+        headers["Cookie"] = FEAR_COOKIE
     try:
         timeout = aiohttp.ClientTimeout(total=5)
         async with session.get(url, headers=headers, timeout=timeout) as r:
@@ -9330,9 +9332,15 @@ async def _fetch_fear_fast(session: aiohttp.ClientSession, steamid: str) -> dict
 
 async def _fetch_fear_ban_check(session: aiohttp.ClientSession, steamid: str, retries: int = 2) -> dict | None:
     """Проверяет бан Fear через /bans/check/{steamid} (более надёжно чем banInfo в profile)."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    if FEAR_COOKIE:
+        headers["Cookie"] = FEAR_COOKIE
     for attempt in range(retries):
         try:
-            data = await _fetch_json(session, f"{API_BASE}/bans/check/{steamid}")
+            data = await _fetch_json(session, f"{API_BASE}/bans/check/{steamid}", headers=headers, timeout_total=5, max_retries=2)
             if data:
                 return data
         except Exception:
