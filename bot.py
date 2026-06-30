@@ -10924,12 +10924,25 @@ async def cmd_calc_pay(
     role = _group_to_pay_role(group)
 
     # Получаем количество наказаний (без снятых и тикет-причин)
+    # Сначала пробуем таблицу сайта panel_fear_punishments (там актуальные данные),
+    # если не получилось — fallback на локальную таблицу punishments бота.
     counts = {"bans": 0, "mutes": 0}
+    table_used = "—"
     if _db.db_is_available():
         try:
-            counts = _db.db_get_admin_punishment_counts(steamid, since_ts, until_ts)
+            counts = _db.db_get_admin_punishment_counts_panel(steamid, since_ts, until_ts)
+            if counts.get("bans", 0) or counts.get("mutes", 0):
+                table_used = "panel_fear_punishments"
+            else:
+                counts = _db.db_get_admin_punishment_counts(steamid, since_ts, until_ts)
+                table_used = "punishments"
         except Exception as e:
             _log(f"⚠️ [calc_pay] Ошибка получения наказаний: {e}", discord=False)
+            try:
+                counts = _db.db_get_admin_punishment_counts(steamid, since_ts, until_ts)
+                table_used = "punishments"
+            except Exception as e2:
+                _log(f"⚠️ [calc_pay] Ошибка fallback наказаний: {e2}", discord=False)
 
     bans = int(counts.get("bans", 0))
     mutes = int(counts.get("mutes", 0))
@@ -10953,7 +10966,9 @@ async def cmd_calc_pay(
     top_ticket_place = 0
     if _db.db_is_available():
         try:
-            top_punish = _db.db_get_top_punish_admins(since_ts, until_ts, limit=3)
+            top_punish = _db.db_get_top_punish_admins_panel(since_ts, until_ts, limit=3)
+            if not top_punish:
+                top_punish = _db.db_get_top_punish_admins(since_ts, until_ts, limit=3)
             for i, row in enumerate(top_punish, 1):
                 if str(row.get("admin_steamid") or "").strip() == str(steamid).strip():
                     top_punish_place = i
@@ -10989,9 +11004,13 @@ async def cmd_calc_pay(
     admin_name = steamid
     try:
         if _db.db_is_available():
-            rows = _db.db_get_punishments_by_admin(steamid, limit=1)
-            if rows:
-                admin_name = rows[0].get("admin") or steamid
+            name_from_db = _db.db_get_admin_name(steamid)
+            if name_from_db:
+                admin_name = name_from_db
+            else:
+                rows = _db.db_get_punishments_by_admin(steamid, limit=1)
+                if rows:
+                    admin_name = rows[0].get("admin") or steamid
     except Exception:
         pass
 
@@ -11012,7 +11031,7 @@ async def cmd_calc_pay(
     embed.add_field(name="🏆 Топ наказания", value=f"{top_punish_place or '—'} место (+{top_punish_prize} ₽)", inline=True)
     embed.add_field(name="🏆 Топ тикеты", value=f"{top_ticket_place or '—'} место (+{top_ticket_prize} ₽)", inline=True)
     embed.add_field(name="💵 Итого", value=f"**{total} ₽**", inline=True)
-    embed.set_footer(text="Снятые наказания и 'тикет в дс' исключены • Топ-призы за текущий период")
+    embed.set_footer(text=f"Источник: {table_used} • Снятые и 'тикет в дс' исключены • Топ-призы за текущий период")
 
     await interaction.edit_original_response(content=None, embed=embed)
 

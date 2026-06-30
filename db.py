@@ -820,6 +820,73 @@ def db_get_top_punish_admins(since_ts: int = 0, until_ts: int = None, limit: int
         return []
 
 
+def db_get_admin_punishment_counts_panel(admin_steamid: str, since_ts: int = 0, until_ts: int = None, exclude_ticket_reasons: bool = True) -> dict:
+    """Считает баны/муты админа из panel_fear_punishments (таблица сайта).
+    Без снятых (status=2) и тикет-причин."""
+    conn = _get_conn()
+    if not conn:
+        return {"bans": 0, "mutes": 0}
+    try:
+        with conn.cursor() as cur:
+            status_filter = "AND status IN (1, 4)" if exclude_ticket_reasons else ""
+            reason_filter = """
+                AND lower(coalesce(reason, '')) !~* '(напиши.*тикет.*дс|тикет.*дс|ticket.*дс|ticket.*ds|discord|напиши.*дс)'
+            """ if exclude_ticket_reasons else ""
+            until_filter = "AND created <= %s" if until_ts else ""
+            params = [admin_steamid, since_ts]
+            if until_ts:
+                params.append(until_ts)
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE type = 1) as bans,
+                    COUNT(*) FILTER (WHERE type = 2) as mutes
+                FROM panel_fear_punishments
+                WHERE admin_steamid = %s
+                  AND created >= %s
+                  {until_filter}
+                  {status_filter}
+                  {reason_filter}
+            """, params)
+            row = cur.fetchone()
+            return dict(row) if row else {"bans": 0, "mutes": 0}
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_admin_punishment_counts_panel: {e}")
+        return {"bans": 0, "mutes": 0}
+
+
+def db_get_top_punish_admins_panel(since_ts: int = 0, until_ts: int = None, limit: int = 3) -> list[dict]:
+    """Топ админов по наказаниям из panel_fear_punishments (сайт). Без снятых и тикет-причин."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            until_filter = "AND created <= %s" if until_ts else ""
+            params = [since_ts]
+            if until_ts:
+                params.append(until_ts)
+            params.append(limit)
+            cur.execute(f"""
+                SELECT admin_steamid,
+                       MAX(admin_name) as admin_name,
+                       COUNT(*) FILTER (WHERE type = 1) as bans,
+                       COUNT(*) FILTER (WHERE type = 2) as mutes,
+                       COUNT(*) as total
+                FROM panel_fear_punishments
+                WHERE created >= %s
+                  {until_filter}
+                  AND status IN (1, 4)
+                  AND lower(coalesce(reason, '')) !~* '(напиши.*тикет.*дс|тикет.*дс|ticket.*дс|ticket.*ds|discord|напиши.*дс)'
+                GROUP BY admin_steamid
+                ORDER BY total DESC, bans DESC
+                LIMIT %s
+            """, params)
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_top_punish_admins_panel: {e}")
+        return []
+
+
 def db_get_admin_tickets_month(admin_steamid: str, ym: str) -> int:
     """Количество тикетов админа за месяц (из таблицы panel_staff_tickets)."""
     conn = _get_conn()
@@ -1092,6 +1159,25 @@ def db_get_admin_group(steamid: str) -> str:
             return row["group_name"] if row else ""
     except Exception as e:
         logger.error(f"[DB] Ошибка get_admin_group: {e}")
+        return ""
+
+
+def db_get_admin_name(steamid: str) -> str:
+    """Получить имя админа по steamid из таблицы admins/profiles."""
+    conn = _get_conn()
+    if not conn:
+        return ""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(p.name, a.raw_json->>'name', a.group_display_name) as name
+                FROM admins a LEFT JOIN profiles p ON p.steamid = a.steamid
+                WHERE a.steamid = %s
+            """, (steamid,))
+            row = cur.fetchone()
+            return row["name"] if row and row["name"] else ""
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_admin_name: {e}")
         return ""
 
 
