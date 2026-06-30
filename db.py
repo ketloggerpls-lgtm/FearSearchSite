@@ -1163,19 +1163,33 @@ def db_get_admin_group(steamid: str) -> str:
 
 
 def db_get_admin_name(steamid: str) -> str:
-    """Получить имя админа по steamid из таблицы admins/profiles."""
+    """Получить имя админа по steamid из таблиц admins/profiles/panel_fear_punishments."""
     conn = _get_conn()
     if not conn:
         return ""
     try:
         with conn.cursor() as cur:
+            # 1. admins/profiles
             cur.execute("""
                 SELECT COALESCE(p.name, a.raw_json->>'name', a.group_display_name) as name
                 FROM admins a LEFT JOIN profiles p ON p.steamid = a.steamid
                 WHERE a.steamid = %s
             """, (steamid,))
             row = cur.fetchone()
-            return row["name"] if row and row["name"] else ""
+            if row and row["name"]:
+                return row["name"]
+            # 2. panel_fear_punishments (актуальное имя на сайте)
+            cur.execute("""
+                SELECT admin_name
+                FROM panel_fear_punishments
+                WHERE admin_steamid = %s AND admin_name IS NOT NULL AND admin_name != ''
+                ORDER BY created DESC
+                LIMIT 1
+            """, (steamid,))
+            row = cur.fetchone()
+            if row and row["admin_name"]:
+                return row["admin_name"]
+            return ""
     except Exception as e:
         logger.error(f"[DB] Ошибка get_admin_name: {e}")
         return ""

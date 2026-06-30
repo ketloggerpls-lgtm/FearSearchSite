@@ -11008,7 +11008,8 @@ async def cmd_calc_pay(
             if name_from_db:
                 admin_name = name_from_db
             else:
-                rows = _db.db_get_punishments_by_admin(steamid, limit=1)
+                # Fallback: последнее имя из таблицы сайта
+                rows = _db.db_get_punishments_by_admin(steamid, ptype=0, limit=1)
                 if rows:
                     admin_name = rows[0].get("admin") or steamid
     except Exception:
