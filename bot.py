@@ -7701,6 +7701,7 @@ _channel_warned: set[int] = set()
 
 @tasks.loop(seconds=15)
 async def monitor_loop():
+    global _last_online_record_ts
     _log("🔄 [MONITOR] Начало цикла мониторинга", discord=False)
     sus_channel   = bot.get_channel(SUSPICIOUS_CHANNEL_ID)
     watch_channel = bot.get_channel(WATCH_CHANNEL_ID)
@@ -9349,6 +9350,42 @@ async def _fetch_fear_ban_check(session: aiohttp.ClientSession, steamid: str, re
             await asyncio.sleep(0.3)
     return None
 
+async def _fetch_fear_punishments_by_player(session: aiohttp.ClientSession, steamid: str, retries: int = 2) -> list[dict]:
+    """Ищет наказания игрока через /punishments/search?q={steamid}&type=1.
+    Это самый надёжный способ узнать, есть ли бан на Fear, т.к. ищет в базе наказаний."""
+    if not FEAR_COOKIE:
+        return []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Cookie": FEAR_COOKIE,
+        "Referer": "https://fearproject.ru/",
+        "Origin": "https://fearproject.ru",
+    }
+    result = []
+    limit = 20
+    page = 1
+    max_pages = 5
+    while page <= max_pages:
+        try:
+            data = await _fetch_json(session, PUNISH_SEARCH_URL,
+                params={"q": steamid, "page": page, "limit": limit, "type": 1},
+                headers=headers, timeout_total=5, max_retries=2)
+        except Exception:
+            break
+        if not data or not isinstance(data, dict):
+            break
+        raw = data.get("punishments") or []
+        if not isinstance(raw, list):
+            break
+        for p in raw:
+            if str(p.get("steamid") or "").strip() == str(steamid):
+                result.append(p)
+        if len(raw) < limit:
+            break
+        page += 1
+    return result
+
 async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
     """Проверяет аккаунты через Fear, Steam и Yooma API параллельно с ограничением параллелизма."""
     results = []
@@ -9376,7 +9413,7 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
                 return await _check_yooma_ban(session, sid)
         yooma_future = asyncio.gather(*[yooma_with_sem(sid) for sid in steamids])
 
-        # Fear — профиль и проверка бана через /bans/check (более надёжно)
+        # Fear — профиль, /bans/check и поиск наказаний /punishments/search (самый надёжный)
         fear_sem = asyncio.Semaphore(50)
         async def fear_with_sem(sid: str):
             async with fear_sem:
@@ -9384,12 +9421,16 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
         async def fear_ban_with_sem(sid: str):
             async with fear_sem:
                 return await _fetch_fear_ban_check(session, sid)
+        async def fear_punish_with_sem(sid: str):
+            async with fear_sem:
+                return await _fetch_fear_punishments_by_player(session, sid)
         fear_future = asyncio.gather(*[fear_with_sem(sid) for sid in steamids])
         fear_ban_future = asyncio.gather(*[fear_ban_with_sem(sid) for sid in steamids])
+        fear_punish_future = asyncio.gather(*[fear_punish_with_sem(sid) for sid in steamids])
 
         # Все источники — параллельно
-        (bans_results, summary_results), yooma_results_raw, fear_profiles, fear_ban_checks = await asyncio.gather(
-            steam_future, yooma_future, fear_future, fear_ban_future
+        (bans_results, summary_results), yooma_results_raw, fear_profiles, fear_ban_checks, fear_punish_checks = await asyncio.gather(
+            steam_future, yooma_future, fear_future, fear_ban_future, fear_punish_future
         )
 
         bans_map = {}
@@ -9409,12 +9450,42 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
         yooma_map = {sid: ydata for sid, ydata in zip(steamids, yooma_results_raw)}
         fear_map = {sid: profile for sid, profile in zip(steamids, fear_profiles)}
         fear_ban_map = {sid: ban_data for sid, ban_data in zip(steamids, fear_ban_checks)}
+        fear_punish_map = {sid: punish_list for sid, punish_list in zip(steamids, fear_punish_checks)}
+
+        def _is_active_or_expired_ban(p):
+            """Считаем бан валидным, если статус активный (1) или истёкший (4).
+            Снятые (2) и другие не считаем."""
+            st = p.get("status")
+            if isinstance(st, int):
+                return st in (1, 4)
+            try:
+                return int(st) in (1, 4)
+            except Exception:
+                return False
+
+        def _punishment_reason(p):
+            return p.get("reason") or p.get("ban_reason") or p.get("message") or p.get("comment") or p.get("desc") or p.get("punish_reason") or p.get("text") or ""
+
+        def _is_ticket_reason(reason):
+            r = str(reason or "").lower()
+            compact = re.sub(r"\s+", " ", r).strip()
+            no_space = compact.replace(" ", "")
+            if "напиши тикет в дс" in compact or "напишитикетвдс" in no_space:
+                return True
+            if "тикет" in r and "дс" in r:
+                return True
+            if "ticket" in r and ("дс" in r or "ds" in r or "discord" in r):
+                return True
+            if "напиши" in r and "дс" in r:
+                return True
+            return False
 
         for sid in steamids:
             steam_ban  = bans_map.get(sid, {})
             summary    = summary_map.get(sid, {})
             fear       = fear_map.get(sid)
             fear_ban   = fear_ban_map.get(sid)
+            fear_punishments = fear_punish_map.get(sid, [])
 
             vac_banned    = steam_ban.get("VACBanned", False)
             vac_days      = steam_ban.get("DaysSinceLastBan", 0)
@@ -9426,17 +9497,30 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
             on_fear       = fear is not None
             fear_name     = fear.get("name", "") if fear else ""
 
-            # Основной источник — banInfo из профиля, но /bans/check более надёжен.
-            profile_ban_info = fear.get("banInfo", {}) if fear else {}
-            check_ban_info   = fear_ban if isinstance(fear_ban, dict) else {}
-
-            # Если /bans/check говорит, что игрок забанен — доверяем ему.
-            if check_ban_info.get("isBanned") or check_ban_info.get("is_banned") or check_ban_info.get("banned"):
-                ban_info = check_ban_info
-            elif profile_ban_info.get("isBanned"):
-                ban_info = profile_ban_info
+            # Самый надёжный источник — /punishments/search?q=steamid&type=1.
+            # Если найден валидный бан (active/expired), доверяем ему.
+            valid_bans = [p for p in fear_punishments if _is_active_or_expired_ban(p)]
+            if valid_bans:
+                primary = valid_bans[0]
+                ban_info = {
+                    "isBanned": True,
+                    "is_banned": True,
+                    "banned": True,
+                    "reason": _punishment_reason(primary),
+                    "unbanTimestamp": primary.get("expires") or primary.get("expires_at") or primary.get("unban_time") or None,
+                    "punishments": valid_bans,
+                }
             else:
-                ban_info = {}
+                # Fallback: /bans/check, затем banInfo из профиля.
+                profile_ban_info = fear.get("banInfo", {}) if fear else {}
+                check_ban_info   = fear_ban if isinstance(fear_ban, dict) else {}
+
+                if check_ban_info.get("isBanned") or check_ban_info.get("is_banned") or check_ban_info.get("banned"):
+                    ban_info = check_ban_info
+                elif profile_ban_info.get("isBanned"):
+                    ban_info = profile_ban_info
+                else:
+                    ban_info = {}
 
             fear_banned   = bool(ban_info.get("isBanned") or ban_info.get("is_banned") or ban_info.get("banned"))
             fear_reason   = ban_info.get("reason", "") if fear_banned else ""
@@ -10684,6 +10768,251 @@ async def cmd_drops(interaction: discord.Interaction, date: str = ""):
         view.add_item(discord.ui.Button(label="Сегодня", style=discord.ButtonStyle.secondary, custom_id=f"drops_{today}"))
     if date != yesterday:
         view.add_item(discord.ui.Button(label="Вчера", style=discord.ButtonStyle.secondary, custom_id=f"drops_{yesterday}"))
+
+    await interaction.edit_original_response(content=None, embed=embed)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Приватная команда расчёта выплат — только для владельца (1500235583367417866)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PAY_RANK_BONUS = {
+    "BETA": 0,       # бета-ранг без бонуса
+    "GAMMA": 500,
+    "ALPHA": 750,
+    "METHOD": 1000,
+    "TOP": 0,        # топ — это отдельные топ-призы, не бонус ранга
+}
+
+_PAY_ROLE_FIXED = {
+    "ML": 0,
+    "M": 0,
+    "STM": 1000,
+    "STA": 3000,
+    "GA": 9000,
+    "CURATOR": 4000,
+}
+
+_PAY_ROLE_NORMS = {
+    "ML": {"punish": 0, "tickets": 0},    # младший — без норм и без выплаты
+    "M": {"punish": 100, "tickets": 0},
+    "STM": {"punish": 60, "tickets": 0},
+    "STA": {"punish": 40, "tickets": 0},
+    "GA": {"punish": 0, "tickets": 0},
+    "CURATOR": {"punish": 0, "tickets": 0},
+}
+
+_PAY_BAN_TIERS = [
+    {"from": 0, "to": 150, "rate": 7},
+    {"from": 150, "to": 250, "rate": 6},
+    {"from": 250, "to": 350, "rate": 5},
+    {"from": 350, "to": 500, "rate": 4},
+    {"from": 500, "to": None, "rate": 3},
+]
+
+_PAY_TICKET_TIERS = [
+    {"from": 0, "to": 100, "rate": 10},
+    {"from": 100, "to": 250, "rate": 8},
+    {"from": 250, "to": 500, "rate": 7},
+    {"from": 500, "to": None, "rate": 6},
+]
+
+_PAY_TOP_PUNISH_PRIZES = [1500, 1250, 1000]
+_PAY_TOP_TICKET_PRIZES = [1500, 1250, 1000]
+
+
+def _group_to_pay_role(group_name: str) -> str:
+    g = str(group_name or "").strip().upper()
+    mapping = {
+        "MLMODER": "ML",
+        "MODER": "M",
+        "STMODER": "STM",
+        "STADMIN": "STA",
+        "GLADMIN": "GA",
+        "CURATOR": "CURATOR",
+        "STAFF": "M",
+        "ADMIN": "STA",
+        "ADMIN+": "GA",
+    }
+    return mapping.get(g, "GA")
+
+
+def _progressive_pay(count: int, tiers: list) -> int:
+    c = max(0, int(count or 0))
+    pay = 0
+    for t in tiers:
+        f = max(0, int(t.get("from", 0)))
+        to = t.get("to")
+        to = float("inf") if to is None else max(f, int(to))
+        rate = float(t.get("rate", 0))
+        if c <= f:
+            continue
+        units = min(c, to) - f
+        if units > 0:
+            pay += units * rate
+    return pay
+
+
+def _pay_bans_by_count(bans: int) -> int:
+    return _progressive_pay(bans, _PAY_BAN_TIERS)
+
+
+def _pay_tickets_by_count(tickets: int) -> int:
+    return _progressive_pay(tickets, _PAY_TICKET_TIERS)
+
+
+def _period_bounds(period: str) -> tuple[int, int]:
+    now = datetime.now(timezone.utc)
+    if period == "week":
+        start = now - timedelta(days=7)
+    else:
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = now
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def _ts_to_ym(ts: int) -> str:
+    d = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return f"{d.year}-{str(d.month).zfill(2)}"
+
+
+@tree.command(name="calc_pay", description="[OWNER ONLY] Расчёт выплаты по наказаниям стаффа")
+@app_commands.describe(
+    steamid="SteamID админа",
+    rank="Ранг проверки",
+    period="Период расчёта",
+    tickets="Количество тикетов (если не указано — из БД за месяц, для week=0)"
+)
+@app_commands.choices(
+    rank=[
+        app_commands.Choice(name="BETA", value="BETA"),
+        app_commands.Choice(name="GAMMA", value="GAMMA"),
+        app_commands.Choice(name="ALPHA", value="ALPHA"),
+        app_commands.Choice(name="METHOD", value="METHOD"),
+        app_commands.Choice(name="TOP", value="TOP"),
+    ],
+    period=[
+        app_commands.Choice(name="Текущий месяц", value="month"),
+        app_commands.Choice(name="Последние 7 дней", value="week"),
+    ]
+)
+async def cmd_calc_pay(
+    interaction: discord.Interaction,
+    steamid: str,
+    rank: app_commands.Choice[str],
+    period: app_commands.Choice[str] = None,
+    tickets: int = None,
+):
+    await interaction.response.defer(ephemeral=True)
+
+    if interaction.user.id != 1500235583367417866:
+        return await interaction.edit_original_response(
+            content="❌ Эта команда только для владельца."
+        )
+
+    period_value = period.value if period else "month"
+    since_ts, until_ts = _period_bounds(period_value)
+    ym = _ts_to_ym(since_ts)
+
+    # Определяем роль админа
+    group = ""
+    if _db.db_is_available():
+        try:
+            group = _db.db_get_admin_group(steamid)
+        except Exception as e:
+            _log(f"⚠️ [calc_pay] Ошибка получения группы: {e}", discord=False)
+    role = _group_to_pay_role(group)
+
+    # Получаем количество наказаний (без снятых и тикет-причин)
+    counts = {"bans": 0, "mutes": 0}
+    if _db.db_is_available():
+        try:
+            counts = _db.db_get_admin_punishment_counts(steamid, since_ts, until_ts)
+        except Exception as e:
+            _log(f"⚠️ [calc_pay] Ошибка получения наказаний: {e}", discord=False)
+
+    bans = int(counts.get("bans", 0))
+    mutes = int(counts.get("mutes", 0))
+    punish_count = bans + mutes
+
+    # Тикеты: для week = 0, для month — из БД или параметра
+    ticket_count = 0
+    if period_value == "month":
+        if tickets is not None:
+            ticket_count = max(0, int(tickets))
+        elif _db.db_is_available():
+            try:
+                ticket_count = _db.db_get_admin_tickets_month(steamid, ym)
+            except Exception as e:
+                _log(f"⚠️ [calc_pay] Ошибка получения тикетов: {e}", discord=False)
+
+    # Топ-призы
+    top_punish_prize = 0
+    top_ticket_prize = 0
+    top_punish_place = 0
+    top_ticket_place = 0
+    if _db.db_is_available():
+        try:
+            top_punish = _db.db_get_top_punish_admins(since_ts, until_ts, limit=3)
+            for i, row in enumerate(top_punish, 1):
+                if str(row.get("admin_steamid") or "").strip() == str(steamid).strip():
+                    top_punish_place = i
+                    top_punish_prize = _PAY_TOP_PUNISH_PRIZES[i - 1] or 0
+                    break
+        except Exception as e:
+            _log(f"⚠️ [calc_pay] Ошибка топа наказаний: {e}", discord=False)
+
+        if period_value == "month":
+            try:
+                top_ticket = _db.db_get_top_ticket_admins(ym, limit=3)
+                for i, row in enumerate(top_ticket, 1):
+                    if str(row.get("steam_id") or "").strip() == str(steamid).strip():
+                        top_ticket_place = i
+                        top_ticket_prize = _PAY_TOP_TICKET_PRIZES[i - 1] or 0
+                        break
+            except Exception as e:
+                _log(f"⚠️ [calc_pay] Ошибка топа тикетов: {e}", discord=False)
+
+    # Расчёт
+    pay_bans = _pay_bans_by_count(bans)
+    pay_mutes = mutes * 4
+    pay_tickets = _pay_tickets_by_count(ticket_count)
+    rank_bonus = _PAY_RANK_BONUS.get(rank.value, 0)
+    fixed = _PAY_ROLE_FIXED.get(role, 0)
+    norms = _PAY_ROLE_NORMS.get(role, {"punish": 0, "tickets": 0})
+    meets_punish = punish_count >= norms["punish"]
+    meets_tickets = ticket_count >= norms["tickets"]
+    fixed_paid = fixed if (fixed > 0 and meets_punish and meets_tickets) else 0
+    total = pay_bans + pay_mutes + pay_tickets + fixed_paid + rank_bonus + top_punish_prize + top_ticket_prize
+
+    # Имя админа
+    admin_name = steamid
+    try:
+        if _db.db_is_available():
+            rows = _db.db_get_punishments_by_admin(steamid, limit=1)
+            if rows:
+                admin_name = rows[0].get("admin") or steamid
+    except Exception:
+        pass
+
+    embed = discord.Embed(
+        title="💰 Расчёт выплаты",
+        description=f"Админ: **{admin_name}**\nSteamID: `{steamid}`",
+        color=0x2ecc71,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="🎖 Роль", value=f"{group or '—'} → `{role}`", inline=True)
+    embed.add_field(name="⭐ Ранг проверки", value=f"`{rank.value}` (+{rank_bonus} ₽)", inline=True)
+    embed.add_field(name="📅 Период", value=f"{period_value}", inline=True)
+    embed.add_field(name="🔨 Баны", value=f"{bans} (+{pay_bans} ₽)", inline=True)
+    embed.add_field(name="🔇 Муты", value=f"{mutes} (+{pay_mutes} ₽)", inline=True)
+    embed.add_field(name="🎫 Тикеты", value=f"{ticket_count} (+{pay_tickets} ₽)", inline=True)
+    embed.add_field(name="📊 Норма", value=f"{norms['punish']} наказ / {norms['tickets']} тикетов", inline=True)
+    embed.add_field(name="💵 Фикс", value=f"{fixed_paid} ₽ (база {fixed} ₽)", inline=True)
+    embed.add_field(name="🏆 Топ наказания", value=f"{top_punish_place or '—'} место (+{top_punish_prize} ₽)", inline=True)
+    embed.add_field(name="🏆 Топ тикеты", value=f"{top_ticket_place or '—'} место (+{top_ticket_prize} ₽)", inline=True)
+    embed.add_field(name="💵 Итого", value=f"**{total} ₽**", inline=True)
+    embed.set_footer(text="Снятые наказания и 'тикет в дс' исключены • Топ-призы за текущий период")
 
     await interaction.edit_original_response(content=None, embed=embed)
 

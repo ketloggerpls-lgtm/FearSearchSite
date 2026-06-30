@@ -20,6 +20,9 @@ def _get_conn():
     global _pool
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:
+        if not getattr(_get_conn, "_warned_missing", False):
+            logger.warning("[DB] DATABASE_URL не задана — бот работает без PostgreSQL")
+            _get_conn._warned_missing = True
         return None
     if _pool is None or _pool.closed:
         try:
@@ -459,6 +462,7 @@ def db_get_next_vdf_check_id() -> int:
     """Получить следующий check_id из общей последовательности (сайт + бот)."""
     conn = _get_conn()
     if not conn:
+        logger.warning("[DB] Нет подключения к PostgreSQL — next vdf_check_id: 0")
         return 0
     try:
         with conn.cursor() as cur:
@@ -749,6 +753,113 @@ def db_get_punishments_trend(days: int = 30) -> list[dict]:
         return []
 
 
+def db_get_admin_punishment_counts(admin_steamid: str, since_ts: int = 0, until_ts: int = None, exclude_ticket_reasons: bool = True) -> dict:
+    """Считает баны/муты админа за период.
+    По умолчанию исключает снятые (status=2) и причины 'напиши тикет в дс' и т.п."""
+    conn = _get_conn()
+    if not conn:
+        return {"bans": 0, "mutes": 0}
+    try:
+        with conn.cursor() as cur:
+            status_filter = "AND status IN (1, 4)" if exclude_ticket_reasons else ""
+            reason_filter = """
+                AND lower(coalesce(reason, '')) !~* '(напиши.*тикет.*дс|тикет.*дс|ticket.*дс|ticket.*ds|discord|напиши.*дс)'
+            """ if exclude_ticket_reasons else ""
+            until_filter = "AND created <= %s" if until_ts else ""
+            params = [admin_steamid, since_ts]
+            if until_ts:
+                params.append(until_ts)
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE type = 1) as bans,
+                    COUNT(*) FILTER (WHERE type = 2) as mutes
+                FROM punishments
+                WHERE admin_steamid = %s
+                  AND created >= %s
+                  {until_filter}
+                  {status_filter}
+                  {reason_filter}
+            """, params)
+            row = cur.fetchone()
+            return dict(row) if row else {"bans": 0, "mutes": 0}
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_admin_punishment_counts: {e}")
+        return {"bans": 0, "mutes": 0}
+
+
+def db_get_top_punish_admins(since_ts: int = 0, until_ts: int = None, limit: int = 3) -> list[dict]:
+    """Топ админов по наказаниям (баны + муты) за период. Без снятых и тикет-причин."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            until_filter = "AND created <= %s" if until_ts else ""
+            params = [since_ts]
+            if until_ts:
+                params.append(until_ts)
+            params.append(limit)
+            cur.execute(f"""
+                SELECT admin_steamid,
+                       MAX(admin) as admin_name,
+                       COUNT(*) FILTER (WHERE type = 1) as bans,
+                       COUNT(*) FILTER (WHERE type = 2) as mutes,
+                       COUNT(*) as total
+                FROM punishments
+                WHERE created >= %s
+                  {until_filter}
+                  AND status IN (1, 4)
+                  AND lower(coalesce(reason, '')) !~* '(напиши.*тикет.*дс|тикет.*дс|ticket.*дс|ticket.*ds|discord|напиши.*дс)'
+                GROUP BY admin_steamid
+                ORDER BY total DESC, bans DESC
+                LIMIT %s
+            """, params)
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_top_punish_admins: {e}")
+        return []
+
+
+def db_get_admin_tickets_month(admin_steamid: str, ym: str) -> int:
+    """Количество тикетов админа за месяц (из таблицы panel_staff_tickets)."""
+    conn = _get_conn()
+    if not conn:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(tickets), 0) as total
+                FROM panel_staff_tickets
+                WHERE steam_id = %s AND ym = %s
+            """, (admin_steamid, ym))
+            row = cur.fetchone()
+            return int(row["total"]) if row else 0
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_admin_tickets_month: {e}")
+        return 0
+
+
+def db_get_top_ticket_admins(ym: str, limit: int = 3) -> list[dict]:
+    """Топ админов по тикетам за месяц (из таблицы panel_staff_tickets)."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT steam_id, SUM(tickets) as total
+                FROM panel_staff_tickets
+                WHERE ym = %s
+                GROUP BY steam_id
+                ORDER BY total DESC
+                LIMIT %s
+            """, (ym, limit))
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_top_ticket_admins: {e}")
+        return []
+
+
 def db_get_punishments_month_compare() -> dict:
     """Сравнение наказаний текущего и прошлого месяца."""
     conn = _get_conn()
@@ -967,6 +1078,21 @@ def db_upsert_reports(reports: list[dict]) -> bool:
     except Exception as e:
         logger.error(f"[DB] Ошибка upsert_reports: {e}")
         return False
+
+
+def db_get_admin_group(steamid: str) -> str:
+    """Получить group_name админа по steamid."""
+    conn = _get_conn()
+    if not conn:
+        return ""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT group_name FROM admins WHERE steamid = %s", (steamid,))
+            row = cur.fetchone()
+            return row["group_name"] if row else ""
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_admin_group: {e}")
+        return ""
 
 
 def db_list_admins_with_profiles() -> list[dict]:
