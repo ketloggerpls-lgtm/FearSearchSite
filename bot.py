@@ -4973,6 +4973,7 @@ def _load_vdf_checks():
     if _db.db_is_available():
         try:
             db_max = _db.db_get_max_vdf_check_id()
+            print(f"📂 [VDF] max check_id в БД: {db_max}, текущий счётчик: {_vdf_check_counter}")
             if db_max > _vdf_check_counter:
                 _vdf_check_counter = db_max
                 print(f"📂 Счётчик VDF синхронизирован с БД: #{_vdf_check_counter}")
@@ -5003,6 +5004,7 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
     db_next = 0
     try:
         db_next = _db.db_get_next_vdf_check_id()
+        print(f"🔢 [VDF] next check_id из БД: {db_next}")
     except Exception as e:
         print(f"⚠️ Ошибка получения next check_id из БД: {e}")
 
@@ -5012,11 +5014,13 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
         # Fallback на локальный счётчик
         try:
             db_max = _db.db_get_max_vdf_check_id()
+            print(f"🔢 [VDF] fallback max check_id из БД: {db_max}, текущий счётчик: {_vdf_check_counter}")
             if db_max >= _vdf_check_counter:
                 _vdf_check_counter = db_max
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ [VDF] fallback max check_id ошибка: {e}")
         _vdf_check_counter += 1
+        print(f"🔢 [VDF] fallback next check_id: {_vdf_check_counter}")
 
     check_id = _vdf_check_counter
     _vdf_checks[check_id] = {
@@ -5035,10 +5039,13 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
         if steamids and vdf_text:
             config_hash = hashlib.sha256(vdf_text.encode("utf-8", errors="ignore")).hexdigest()[:64]
             _db.db_save_config_accounts(config_hash, steamids, filename, vdf_text)
-            _db.db_save_vdf_history(results, config_hash=config_hash, filename=filename, check_id=check_id,
+            saved_check_id = _db.db_save_vdf_history(results, config_hash=config_hash, filename=filename, check_id=check_id,
                                     attachment_url=attachment_url, message_url=message_url, source="bot")
+            print(f"✅ [VDF] Проверка #{check_id} сохранена в PostgreSQL (db_check_id={saved_check_id})")
+        else:
+            print(f"⚠️ [VDF] Проверка #{check_id} не сохранена в PostgreSQL: нет steamids или vdf_text")
     except Exception as e:
-        print(f"⚠️ Ошибка сохранения VDF в PostgreSQL: {e}")
+        print(f"⚠️ Ошибка сохранения VDF #{check_id} в PostgreSQL: {e}")
 
     return check_id
 

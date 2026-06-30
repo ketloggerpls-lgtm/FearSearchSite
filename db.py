@@ -385,18 +385,26 @@ def db_get_all_linked_steamids(steamid: str) -> list[str]:
 
 
 def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: str = "", check_id: int = 0,
-                        attachment_url: str = "", message_url: str = "", source: str = "bot") -> bool:
-    """Сохранить результаты VDF проверки в историю (по одному на каждый SteamID)."""
+                        attachment_url: str = "", message_url: str = "", source: str = "bot") -> int:
+    """Сохранить результаты VDF проверки в историю (по одному на каждый SteamID).
+
+    Если check_id <= 0, генерирует новый идентификатор из общей последовательности.
+    Возвращает использованный check_id (или 0 при ошибке).
+    """
     if check_id <= 0:
-        logger.error(f"[DB] Отказано в сохранении vdf_history: некорректный check_id={check_id}")
-        return False
+        next_id = db_get_next_vdf_check_id()
+        if next_id > 0:
+            logger.warning(f"[DB] Получен check_id=0, сгенерирован новый: {next_id}")
+            check_id = next_id
+        else:
+            logger.error(f"[DB] Отказано в сохранении vdf_history: не удалось получить next check_id")
+            return 0
     conn = _get_conn()
     if not conn:
-        return False
+        return 0
     try:
         with conn.cursor() as cur:
-            if check_id > 0:
-                cur.execute("DELETE FROM vdf_history WHERE check_id = %s", (check_id,))
+            cur.execute("DELETE FROM vdf_history WHERE check_id = %s", (check_id,))
             for r in results:
                 cur.execute("""
                     INSERT INTO vdf_history
@@ -427,10 +435,10 @@ def db_save_vdf_history(results: list[dict], config_hash: str = "", filename: st
                     message_url,
                     r.get("on_fear", False),
                 ))
-        return True
+        return check_id
     except Exception as e:
         logger.error(f"[DB] Ошибка сохранения vdf_history: {e}")
-        return False
+        return 0
 
 
 def db_get_max_vdf_check_id() -> int:
@@ -467,12 +475,18 @@ def db_get_next_vdf_check_id() -> int:
             seq_last = cur.fetchone()[0]
             cur.execute("SELECT COALESCE(MAX(check_id), 0) FROM vdf_history")
             max_id = cur.fetchone()[0]
+            logger.warning(f"[DB] vdf_check_id_seq: last_value={seq_last}, max(vdf_history.check_id)={max_id}")
             if max_id >= seq_last:
-                cur.execute("SELECT setval('vdf_check_id_seq', %s, false)", (max_id + 1,))
+                new_val = max_id + 1
+                cur.execute("SELECT setval('vdf_check_id_seq', %s, false)", (new_val,))
+                logger.warning(f"[DB] vdf_check_id_seq подтянута к {new_val}")
             cur.execute("SELECT nextval('vdf_check_id_seq')")
             row = cur.fetchone()
-            return row[0] if row else 0
-    except Exception:
+            next_id = row[0] if row else 0
+            logger.warning(f"[DB] Следующий vdf_check_id: {next_id}")
+            return next_id
+    except Exception as e:
+        logger.error(f"[DB] Ошибка получения next vdf_check_id: {e}")
         return 0
 
 
