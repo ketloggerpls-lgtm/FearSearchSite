@@ -7779,12 +7779,11 @@ async def monitor_loop():
         
         _cached_online_players = new_online
 
-        # Сохраняем снапшот активности в PostgreSQL (компактный)
+        # Сохраняем снапшот активности в PostgreSQL (только число)
         try:
             total_admins = sum(1 for sid, info in new_online.items()
                                if sid in {str(a.get("steamid") or "").strip() for a in _load_admins_cache()})
-            compact = [{"name": s.get("name") or s.get("hostname", ""), "players": len(s.get("players", []))} for s in servers]
-            _db.db_save_server_activity(len(new_online), total_admins, compact)
+            _db.db_save_server_activity(len(new_online), total_admins)
         except Exception as e:
             _log(f"⚠️ [MONITOR] Ошибка save_server_activity: {e}", discord=False)
 
@@ -11094,6 +11093,15 @@ async def db_cleanup_loop():
                 _log(f"🧹 [DB Cleanup] Удалено: {', '.join(parts)}", discord=False)
     except Exception as e:
         _log(f"⚠️ [DB Cleanup] Ошибка: {e}", discord=False)
+    # Один раз обнулить тяжёлые server_data (первый запуск после деплоя)
+    if not getattr(db_cleanup_loop, '_wiped', False):
+        try:
+            wiped = await asyncio.get_event_loop().run_in_executor(None, _db.db_wipe_heavy_columns)
+            if wiped:
+                _log(f"🧹 [DB Cleanup] Обнулено server_data в {wiped} строках", discord=False)
+            db_cleanup_loop._wiped = True
+        except Exception as e:
+            _log(f"⚠️ [DB Cleanup] Ошибка wipe: {e}", discord=False)
 
 
 @db_cleanup_loop.before_loop

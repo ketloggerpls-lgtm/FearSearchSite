@@ -1222,7 +1222,7 @@ def db_list_admins_with_profiles() -> list[dict]:
 
 # ── Server Activity ──────────────────────────────────────────────────────────
 
-def db_save_server_activity(total_players: int, total_admins: int, server_data: list) -> bool:
+def db_save_server_activity(total_players: int, total_admins: int, server_data: list = None) -> bool:
     """Сохранить снапшот активности серверов."""
     conn = _get_conn()
     if not conn:
@@ -1234,7 +1234,7 @@ def db_save_server_activity(total_players: int, total_admins: int, server_data: 
             cur.execute("""
                 INSERT INTO panel_server_activity (timestamp, hour, total_players, total_admins, server_data)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (now, hour, total_players, total_admins, json.dumps(server_data, ensure_ascii=False, default=str)))
+            """, (now, hour, total_players, total_admins, '[]'))
         return True
     except Exception as e:
         logger.error(f"[DB] Ошибка save_server_activity: {e}")
@@ -1678,3 +1678,20 @@ def db_cleanup_old_data():
     except Exception as e:
         logger.error(f"[DB] Ошибка cleanup: {e}")
         return stats
+
+
+def db_wipe_heavy_columns():
+    """Один раз обнулить тяжёлые колонки (server_data в panel_server_activity).
+    Вызывать после деплоя, чтобы освободить место."""
+    conn = _get_conn()
+    if not conn:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE panel_server_activity SET server_data = '[]' WHERE server_data != '[]'")
+            count = cur.rowcount
+        logger.info(f"[DB] Wiped server_data in {count} rows")
+        return count
+    except Exception as e:
+        logger.error(f"[DB] Ошибка wipe_heavy_columns: {e}")
+        return 0
