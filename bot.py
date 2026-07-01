@@ -10888,9 +10888,15 @@ def _period_bounds(period: str) -> tuple[int, int]:
     now = datetime.now(timezone.utc)
     if period == "week":
         start = now - timedelta(days=7)
+        end = now
+    elif period == "prev_month":
+        first_day_current = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_day_prev = first_day_current - timedelta(days=1)
+        start = last_day_prev.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = first_day_current
     else:
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = now
+        end = now
     return int(start.timestamp()), int(end.timestamp())
 
 
@@ -10904,7 +10910,7 @@ def _ts_to_ym(ts: int) -> str:
     steamid="SteamID админа",
     rank="Ранг проверки",
     period="Период расчёта",
-    tickets="Количество тикетов (если не указано — из БД за месяц, для week=0)"
+    tickets="Количество тикетов (если не указано — из БД за месяц/прошлый месяц, для week=0)"
 )
 @app_commands.choices(
     rank=[
@@ -10916,6 +10922,7 @@ def _ts_to_ym(ts: int) -> str:
     ],
     period=[
         app_commands.Choice(name="Текущий месяц", value="month"),
+        app_commands.Choice(name="Прошлый месяц", value="prev_month"),
         app_commands.Choice(name="Последние 7 дней", value="week"),
     ]
 )
@@ -10971,9 +10978,9 @@ async def cmd_calc_pay(
     mutes = int(counts.get("mutes", 0))
     punish_count = bans + mutes
 
-    # Тикеты: для week = 0, для month — из БД или параметра
+    # Тикеты: для week = 0, для month/prev_month — из БД или параметра
     ticket_count = 0
-    if period_value == "month":
+    if period_value in ("month", "prev_month"):
         if tickets is not None:
             ticket_count = max(0, int(tickets))
         elif _db.db_is_available():
@@ -11000,7 +11007,7 @@ async def cmd_calc_pay(
         except Exception as e:
             _log(f"⚠️ [calc_pay] Ошибка топа наказаний: {e}", discord=False)
 
-        if period_value == "month":
+        if period_value in ("month", "prev_month"):
             try:
                 top_ticket = _db.db_get_top_ticket_admins(ym, limit=3)
                 for i, row in enumerate(top_ticket, 1):
@@ -11046,7 +11053,8 @@ async def cmd_calc_pay(
     )
     embed.add_field(name="🎖 Роль", value=f"{group or '—'} → `{role}`", inline=True)
     embed.add_field(name="⭐ Ранг проверки", value=f"`{rank.value}` (+{rank_bonus} ₽)", inline=True)
-    embed.add_field(name="📅 Период", value=f"{period_value}", inline=True)
+    period_label = {"month": "Текущий месяц", "prev_month": "Прошлый месяц", "week": "Последние 7 дней"}.get(period_value, period_value)
+    embed.add_field(name="📅 Период", value=period_label, inline=True)
     embed.add_field(name="🔨 Баны", value=f"{bans} (+{pay_bans} ₽)", inline=True)
     embed.add_field(name="🔇 Муты", value=f"{mutes} (+{pay_mutes} ₽)", inline=True)
     embed.add_field(name="🎫 Тикеты", value=f"{ticket_count} (+{pay_tickets} ₽)", inline=True)
