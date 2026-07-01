@@ -1631,3 +1631,50 @@ def panel_log_login_event(user_id: int, action: str, details: dict | None = None
     except Exception as e:
         logger.error(f"[DB] Ошибка panel_log_login_event: {e}")
         return False
+
+
+# --- Очистка старых данных (ротация) ---
+
+def db_cleanup_old_data():
+    """Удаляет старые записи, чтобы база не раздувалась."""
+    conn = _get_conn()
+    if not conn:
+        return {}
+    stats = {}
+    try:
+        now_ts = int(time.time())
+        with conn.cursor() as cur:
+            # panel_server_activity — 30 дней
+            cutoff_30d = now_ts - 30 * 86400
+            cur.execute("DELETE FROM panel_server_activity WHERE timestamp < %s", (cutoff_30d,))
+            stats["server_activity"] = cur.rowcount
+
+            # app_logs — 14 дней
+            cutoff_14d = now_ts - 14 * 86400
+            cur.execute("DELETE FROM app_logs WHERE created_at < to_timestamp(%s)", (cutoff_14d,))
+            stats["app_logs"] = cur.rowcount
+
+            # vdf_history — 60 дней
+            cutoff_60d = now_ts - 60 * 86400
+            cur.execute("DELETE FROM vdf_history WHERE created_at < to_timestamp(%s)", (cutoff_60d,))
+            stats["vdf_history"] = cur.rowcount
+
+            # panel_login_logs — 30 дней
+            cutoff_login = now_ts * 1000 - 30 * 86400 * 1000
+            cur.execute("DELETE FROM panel_login_logs WHERE created_at < %s", (cutoff_login,))
+            stats["login_logs"] = cur.rowcount
+
+            # vdf_rechecks — 30 дней
+            cur.execute("DELETE FROM vdf_rechecks WHERE requested_at < to_timestamp(%s)", (cutoff_30d,))
+            stats["vdf_rechecks"] = cur.rowcount
+
+            # panel_staff_tickets — 6 месяцев
+            cutoff_6m = (datetime.datetime.now() - datetime.timedelta(days=180)).strftime("%Y-%m")
+            cur.execute("DELETE FROM panel_staff_tickets WHERE ym < %s", (cutoff_6m,))
+            stats["staff_tickets"] = cur.rowcount
+
+        logger.info(f"[DB] Cleanup: {stats}")
+        return stats
+    except Exception as e:
+        logger.error(f"[DB] Ошибка cleanup: {e}")
+        return stats

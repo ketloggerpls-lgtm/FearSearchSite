@@ -7779,11 +7779,12 @@ async def monitor_loop():
         
         _cached_online_players = new_online
 
-        # Сохраняем снапшот активности в PostgreSQL
+        # Сохраняем снапшот активности в PostgreSQL (компактный)
         try:
             total_admins = sum(1 for sid, info in new_online.items()
                                if sid in {str(a.get("steamid") or "").strip() for a in _load_admins_cache()})
-            _db.db_save_server_activity(len(new_online), total_admins, servers)
+            compact = [{"name": s.get("name") or s.get("hostname", ""), "players": len(s.get("players", []))} for s in servers]
+            _db.db_save_server_activity(len(new_online), total_admins, compact)
         except Exception as e:
             _log(f"⚠️ [MONITOR] Ошибка save_server_activity: {e}", discord=False)
 
@@ -11078,6 +11079,26 @@ async def cmd_calc_pay(
     embed.set_footer(text=f"Источник: {table_used} • Снятые и 'тикет в дс' исключены • Топ-призы за текущий период")
 
     await interaction.edit_original_response(content=None, embed=embed)
+
+
+@tasks.loop(hours=6)
+async def db_cleanup_loop():
+    """Каждые 6 часов чистит старые данные из БД, чтобы не раздувалась."""
+    if not _db.db_is_available():
+        return
+    try:
+        stats = await asyncio.get_event_loop().run_in_executor(None, _db.db_cleanup_old_data)
+        if stats:
+            parts = [f"{k}: {v}" for k, v in stats.items() if v]
+            if parts:
+                _log(f"🧹 [DB Cleanup] Удалено: {', '.join(parts)}", discord=False)
+    except Exception as e:
+        _log(f"⚠️ [DB Cleanup] Ошибка: {e}", discord=False)
+
+
+@db_cleanup_loop.before_loop
+async def before_db_cleanup():
+    await bot.wait_until_ready()
 
 
 @tasks.loop(minutes=2)
