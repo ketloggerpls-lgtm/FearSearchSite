@@ -83,7 +83,8 @@ WATCH_CHANNEL_ID       = _env_int("WATCH_CHANNEL_ID", 1506424445852454983)      
 BAN_NOTIFY_CHANNEL_ID  = _env_int("BAN_NOTIFY_CHANNEL_ID", 1503035873816744069)   # уведомления о банах на yooma/cs2red
 STAFF_PUNISH_LOG_CHANNEL_ID = _env_int("STAFF_PUNISH_LOG_CHANNEL_ID", 1510955528787071077)
 ALERT_ROLE_ID          = _env_int("ALERT_ROLE_ID", 1463269872350920704)
-API_BASE               = os.getenv("API_BASE", "https://api.fearproject.ru").strip() or "https://api.fearproject.ru"
+API_BASE               = os.getenv("API_BASE", "https://fearproject.ru/api").strip() or "https://fearproject.ru/api"
+API_BASE_OLD           = os.getenv("API_BASE_OLD", "https://api.fearproject.ru").strip() or "https://api.fearproject.ru"
 
 # Роли, которым запрещен Yooma (но разрешен /mystats)
 YOOMA_RESTRICTED_ROLES = _env_int_list("YOOMA_RESTRICTED_ROLES", [1507939408223928465, 1507939502147113000])
@@ -776,6 +777,16 @@ def _safe_url(url: str) -> str:
         return "<url>"
 
 async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict = None, headers: dict = None, timeout_total: int = 8, max_retries: int = 2):
+    # Fallback: если URL на новом домене не отвечает — пробуем старый
+    result = await _fetch_json_one(session, url, params, headers, timeout_total, max_retries)
+    if result is None and API_BASE in url and API_BASE != API_BASE_OLD:
+        fallback_url = url.replace(API_BASE, API_BASE_OLD, 1)
+        _log(f"🔀 [FALLBACK] {_safe_url(url)} -> {_safe_url(fallback_url)}", discord=False)
+        result = await _fetch_json_one(session, fallback_url, params, headers, timeout_total, max_retries=1)
+    return result
+
+
+async def _fetch_json_one(session: aiohttp.ClientSession, url: str, params: dict = None, headers: dict = None, timeout_total: int = 8, max_retries: int = 2):
     safe = _safe_url(url)
     timeout = aiohttp.ClientTimeout(total=timeout_total)
     last_status = None
@@ -4478,7 +4489,7 @@ async def cmd_dmchecker(interaction: discord.Interaction, mode: str):
     _log(f"DM чекер режим: {mode} ({interaction.user})")
 
 
-PUNISH_LIST_URL = "https://api.fearproject.ru/punishments"
+PUNISH_LIST_URL = f"{API_BASE}/punishments"
 
 @tree.command(name="fear_search", description="Найти баны на Fear по причине (пролистывает ВСЕ страницы)")
 @app_commands.describe(reason="Причина бана для поиска")
@@ -7933,7 +7944,7 @@ async def before_monitor():
     _load_whitelist()
 
 FEARSEARCH_LOCAL = "http://127.0.0.1:8080"
-PUNISH_SEARCH_URL = "https://api.fearproject.ru/punishments/search"
+PUNISH_SEARCH_URL = f"{API_BASE}/punishments/search"
 
 async def _fetch_all_punishments(session: aiohttp.ClientSession, steamid: str, ptype: int) -> list:
     """Листает все страницы наказаний для админа по типу (1=баны, 2=муты).
