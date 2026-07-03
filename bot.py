@@ -2121,12 +2121,14 @@ def _calc_stats(data: dict, date_from: datetime | None = None, date_to: datetime
     bans  = data.get("bans", [])
     mutes = data.get("mutes", [])
 
+    def _is_ticket_reason(item):
+        reason = str(item.get("reason", "")).strip().lower()
+        return reason in ("тикет", "тикет в дс", "напиши тикет в дс") or "тикет" in reason
+
     def in_period(item):
         if date_from is None and date_to is None:
             return True
         ts = item.get("created", 0)
-        # Переводим в MSK (UTC+3), так как администрация и игроки живут по этому времени
-        # и выбор периода в интерфейсе подразумевает календарные дни MSK
         dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
         msk = timezone(timedelta(hours=3))
         dt_msk = dt_utc.astimezone(msk)
@@ -2135,8 +2137,8 @@ def _calc_stats(data: dict, date_from: datetime | None = None, date_to: datetime
         if date_to   and dt_msk > date_to:   return False
         return True
 
-    bans_f  = [b for b in bans  if in_period(b)]
-    mutes_f = [m for m in mutes if in_period(m)]
+    bans_f  = [b for b in bans  if in_period(b) and not _is_ticket_reason(b)]
+    mutes_f = [m for m in mutes if in_period(m) and not _is_ticket_reason(m)]
 
     # status: 1=активно, 2=снято, 4=истек срок
     active_bans   = [b for b in bans_f  if int(b.get("status", 0)) == 1]
@@ -2235,23 +2237,22 @@ def _period_label(date_from: datetime | None, date_to: datetime | None) -> str:
 
 def _month_weeks(year: int, month: int) -> list[tuple[datetime, datetime]]:
     """Возвращает недели начиная с понедельника (weekday=0).
-    Неделя: понедельник 00:00 — воскресенье 23:59:59.
+    Неделя: понедельник 00:00 — воскресенье 23:59:59 (MSK).
     Показываем только недели, пересекающиеся с указанным месяцем."""
     import calendar
+    msk = timezone(timedelta(hours=3))
     _, days_in_month = calendar.monthrange(year, month)
 
-    first_day = datetime(year, month, 1, tzinfo=timezone.utc)
-    # weekday(): 0=пн, 1=вт, 2=ср, 3=чт, 4=пт, 5=сб, 6=вс
-    days_since_mon = first_day.weekday()  # сколько дней прошло с последнего понедельника
+    first_day = datetime(year, month, 1, tzinfo=msk)
+    days_since_mon = first_day.weekday()
     first_mon = first_day - timedelta(days=days_since_mon)
 
     weeks = []
     current = first_mon
-    month_end = datetime(year, month, days_in_month, 23, 59, 59, tzinfo=timezone.utc)
+    month_end = datetime(year, month, days_in_month, 23, 59, 59, tzinfo=msk)
     while current <= month_end:
         wstart = current
         wend   = current + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        # Включаем неделю если она пересекается с месяцем
         if wend >= first_day and wstart <= month_end:
             weeks.append((wstart, wend))
         current += timedelta(days=7)
@@ -2452,12 +2453,12 @@ class StaffView(discord.ui.View):
 
     def _current_week_idx(self) -> int:
         """Возвращает индекс текущей недели в текущем месяце (0-based)."""
-        now = datetime.now(tz=timezone.utc)
+        msk = timezone(timedelta(hours=3))
+        now = datetime.now(tz=msk)
         weeks = _month_weeks(self.year, self.month)
         for i, (wstart, wend) in enumerate(weeks):
             if wstart <= now <= wend:
                 return i
-        # Если не попали ни в одну (например, после последней среды), берём последнюю
         return len(weeks) - 1 if weeks else 0
 
     def _build_buttons(self):
@@ -6498,17 +6499,23 @@ def _build_stats_embed(steamid: str, date_from: datetime | None = None, date_to:
             inline=True
         )
 
+    def _is_ticket_reason(item):
+        reason = str(item.get("reason", "")).strip().lower()
+        return reason in ("тикет", "тикет в дс", "напиши тикет в дс") or "тикет" in reason
+
     def in_period(item):
         if date_from is None and date_to is None:
             return True
         ts = item.get("created", 0)
         dt2 = datetime.fromtimestamp(ts, tz=timezone.utc)
-        if date_from and dt2 < date_from: return False
-        if date_to   and dt2 > date_to:   return False
+        msk = timezone(timedelta(hours=3))
+        dt_msk = dt2.astimezone(msk)
+        if date_from and dt_msk < date_from: return False
+        if date_to   and dt_msk > date_to:   return False
         return True
 
     recent_bans = sorted(
-        [b for b in bans if b.get("status") != 2 and in_period(b)],
+        [b for b in bans if b.get("status") != 2 and in_period(b) and not _is_ticket_reason(b)],
         key=lambda x: x.get("created", 0), reverse=True)[:5]
     if recent_bans:
         lines = []
@@ -6520,7 +6527,7 @@ def _build_stats_embed(steamid: str, date_from: datetime | None = None, date_to:
         embed.add_field(name="Последние баны", value="\n".join(lines), inline=False)
 
     recent_mutes = sorted(
-        [m for m in mutes if m.get("status") != 2 and in_period(m)],
+        [m for m in mutes if m.get("status") != 2 and in_period(m) and not _is_ticket_reason(m)],
         key=lambda x: x.get("created", 0), reverse=True)[:5]
     if recent_mutes:
         lines = []
@@ -6587,12 +6594,13 @@ class StatsView(discord.ui.View):
 
     def _get_period(self):
         import calendar
+        msk = timezone(timedelta(hours=3))
         if self.mode == "all":
             return None, None
         if self.mode == "month":
             _, days = calendar.monthrange(self.year, self.month)
-            return (datetime(self.year, self.month, 1, tzinfo=timezone.utc),
-                    datetime(self.year, self.month, days, 23, 59, 59, tzinfo=timezone.utc))
+            return (datetime(self.year, self.month, 1, tzinfo=msk),
+                    datetime(self.year, self.month, days, 23, 59, 59, tzinfo=msk))
         if self.mode == "week":
             weeks = _month_weeks(self.year, self.month)
             if self.week_idx is not None and self.week_idx < len(weeks):
