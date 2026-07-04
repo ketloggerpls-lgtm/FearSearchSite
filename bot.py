@@ -18,6 +18,8 @@ import hashlib
 import io
 import secrets
 import db as _db
+import gdrive_backup
+import discord_backup
 
 load_dotenv()
 
@@ -5023,18 +5025,40 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
     if db_next > 0:
         _vdf_check_counter = db_next
     else:
-        # Fallback на локальный счётчик
+        # Fallback: пытаемся создать последовательность и использовать её
         try:
+            _db.db_ensure_vdf_sequence()
+            db_next = _db.db_get_next_vdf_check_id()
+            if db_next > 0:
+                _vdf_check_counter = db_next
+                print(f"🔢 [VDF] fallback через последовательность: {_vdf_check_counter}")
+            else:
+                # Крайний fallback — MAX+1
+                db_max = _db.db_get_max_vdf_check_id()
+                print(f"🔢 [VDF] fallback max check_id из БД: {db_max}, текущий счётчик: {_vdf_check_counter}")
+                if db_max >= _vdf_check_counter:
+                    _vdf_check_counter = db_max
+                _vdf_check_counter += 1
+                print(f"🔢 [VDF] fallback next check_id: {_vdf_check_counter}")
+        except Exception as e:
+            print(f"⚠️ [VDF] fallback ошибка: {e}")
             db_max = _db.db_get_max_vdf_check_id()
-            print(f"🔢 [VDF] fallback max check_id из БД: {db_max}, текущий счётчик: {_vdf_check_counter}")
             if db_max >= _vdf_check_counter:
                 _vdf_check_counter = db_max
-        except Exception as e:
-            print(f"⚠️ [VDF] fallback max check_id ошибка: {e}")
-        _vdf_check_counter += 1
-        print(f"🔢 [VDF] fallback next check_id: {_vdf_check_counter}")
+            _vdf_check_counter += 1
 
     check_id = _vdf_check_counter
+
+    # ── Защита от дубликатов: убедимся что check_id больше MAX в БД ──
+    try:
+        db_max = _db.db_get_max_vdf_check_id()
+        if check_id <= db_max:
+            check_id = db_max + 1
+            _vdf_check_counter = check_id
+            print(f"🔢 [VDF] check_id подтянут выше MAX: {check_id}")
+    except Exception:
+        pass
+
     _vdf_checks[check_id] = {
         "results": results,
         "filename": filename,
@@ -5062,6 +5086,7 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
     return check_id
 
 
+_db.db_ensure_vdf_sequence()
 _load_vdf_checks()
 _save_vdf_checks_to_file()
 
@@ -11153,6 +11178,116 @@ async def voice_reconnect_loop():
 @voice_reconnect_loop.before_loop
 async def before_voice_reconnect():
     await bot.wait_until_ready()
+
+
+# ── Backup (Discord + Google Drive) ──
+BACKUP_CHANNEL_ID = int(os.getenv("BACKUP_CHANNEL_ID", "0") or "0")
+
+
+@tree.command(name="backup", description="Создать бэкап базы данных и загрузить в Discord")
+async def cmd_backup(interaction: discord.Interaction):
+    await interaction.response.send_message("⏳ Создаю бэкап базы данных...", ephemeral=True)
+    ch = interaction.guild.get_channel(BACKUP_CHANNEL_ID) if interaction.guild else None
+    if not ch:
+        ch = interaction.channel
+    import concurrent.futures
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        dump_data = await loop.run_in_executor(pool, discord_backup.create_dump_bytes)
+    if not dump_data:
+        return await interaction.edit_original_response(content="❌ Не удалось создать дамп базы")
+    data, filename = dump_data
+    size_mb = len(data) / (1024 * 1024)
+    if len(data) > 25 * 1024 * 1024:
+        return await interaction.edit_original_response(content=f"❌ Дамп слишком большой ({size_mb:.1f}MB > 25MB)")
+    try:
+        file = discord.File(io.BytesIO(data), filename=filename)
+        msg = await ch.send(
+            f"☁️ **Бэкап** — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+            f"Запросил: {interaction.user.mention}\n"
+            f"Размер: {size_mb:.1f}MB",
+            file=file
+        )
+        await interaction.edit_original_response(content=f"✅ Бэкап создан: `{filename}` ({size_mb:.1f}MB)\nСообщение: {msg.jump_url}")
+    except Exception as e:
+        await interaction.edit_original_response(content=f"❌ Ошибка загрузки: {e}")
+
+
+@tree.command(name="restore", description="Скачать последний бэкап базы из Discord")
+async def cmd_restore(interaction: discord.Interaction):
+    ch = interaction.guild.get_channel(BACKUP_CHANNEL_ID) if interaction.guild else None
+    if not ch:
+        return await interaction.response.send_message("❌ Канал бэкапов не найден", ephemeral=True)
+    await interaction.response.send_message("⏳ Ищу последний бэкап...", ephemeral=True)
+    try:
+        async for msg in ch.history(limit=50):
+            if msg.attachments:
+                att = msg.attachments[0]
+                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".dump.gz"):
+                    await interaction.edit_original_response(
+                        content=f"📦 Последний бэкап: `{att.filename}` ({att.size / 1024 / 1024:.1f}MB)\n"
+                                f"Ссылка: {att.url}\n\n"
+                                f"Для восстановления: `pg_restore --clean --no-owner -d DATABASE_URL {att.filename}`"
+                    )
+                    return
+        await interaction.edit_original_response(content="❌ Бэкапы не найдены в канале")
+    except Exception as e:
+        await interaction.edit_original_response(content=f"❌ Ошибка: {e}")
+
+
+@tasks.loop(hours=24)
+async def backup_loop():
+    if not BACKUP_CHANNEL_ID:
+        return
+    ch = bot.get_channel(BACKUP_CHANNEL_ID)
+    if not ch:
+        return
+    import concurrent.futures
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        dump_data = await loop.run_in_executor(pool, discord_backup.create_dump_bytes)
+    if not dump_data:
+        _log("⚠️ [Backup] Автобэкап: не удалось создать дамп", discord=False)
+        return
+    data, filename = dump_data
+    size_mb = len(data) / (1024 * 1024)
+    if len(data) > 25 * 1024 * 1024:
+        _log(f"⚠️ [Backup] Автобэкап: дамп слишком большой ({size_mb:.1f}MB)", discord=False)
+        return
+    try:
+        file = discord.File(io.BytesIO(data), filename=filename)
+        await ch.send(
+            f"☁️ **Автобэкап** — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+            f"Размер: {size_mb:.1f}MB",
+            file=file
+        )
+        _log(f"☁️ [Backup] Автобэкап: {filename} ({size_mb:.1f}MB)", discord=False)
+    except Exception as e:
+        _log(f"⚠️ [Backup] Автобэкап ошибка: {e}", discord=False)
+
+
+@backup_loop.before_loop
+async def before_backup():
+    await bot.wait_until_ready()
+
+
+# ── Google Drive Backup (опционально) ──
+@tree.command(name="gdrive_backup", description="Создать бэкап на Google Drive (если настроен)")
+async def cmd_gdrive_backup(interaction: discord.Interaction, keep: int = 7):
+    if not gdrive_backup._get_service():
+        return await interaction.response.send_message(
+            "❌ Google Drive не настроен. Смотри `.env.example`",
+            ephemeral=True
+        )
+    await interaction.response.send_message("⏳ Создаю бэкап на Google Drive...", ephemeral=True)
+    import concurrent.futures
+    loop = asyncio.get_event_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        result = await loop.run_in_executor(pool, gdrive_backup.create_backup, keep)
+    if result["success"]:
+        await interaction.edit_original_response(content=f"✅ Бэкап создан: `{result['filename']}`\nGoogle Drive ID: `{result.get('file_id', 'N/A')}`")
+    else:
+        await interaction.edit_original_response(content=f"❌ Ошибка бэкапа: {result['message']}")
 
 
 def _cancel_pending_tasks():

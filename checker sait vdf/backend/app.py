@@ -165,9 +165,19 @@ def _save_vdf_history(results: list[dict], filename: str = "", vdf_text: str = "
             config_hash = hashlib.sha256((",".join(steamids)).encode()).hexdigest()[:64]
 
         with conn.cursor() as cur:
-            cur.execute("SELECT COALESCE(MAX(check_id), 0) AS max_check_id FROM vdf_history")
-            row = cur.fetchone()
-            check_id = (row["max_check_id"] if row else 0) + 1
+            cur.execute("""
+                CREATE SEQUENCE IF NOT EXISTS vdf_check_id_seq
+                AS INTEGER START WITH 1 INCREMENT BY 1 NO CYCLE
+            """)
+            cur.execute("SELECT last_value FROM vdf_check_id_seq")
+            seq_last = cur.fetchone()["last_value"]
+            cur.execute("SELECT COALESCE(MAX(check_id), 0) FROM vdf_history")
+            max_row = cur.fetchone()
+            max_id = (max_row["max_check_id"] if max_row else 0) or 0
+            if max_id >= seq_last:
+                cur.execute("SELECT setval('vdf_check_id_seq', %s, false)", (max_id + 1,))
+            cur.execute("SELECT nextval('vdf_check_id_seq')")
+            check_id = cur.fetchone()["nextval"]
 
             # config_hashes
             if _column_exists("config_hashes", "content") and vdf_text:

@@ -458,6 +458,21 @@ def db_get_max_vdf_check_id() -> int:
         return 0
 
 
+def db_ensure_vdf_sequence():
+    """Убедиться, что последовательность vdf_check_id_seq существует."""
+    conn = _get_conn()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE SEQUENCE IF NOT EXISTS vdf_check_id_seq
+                AS INTEGER START WITH 1 INCREMENT BY 1 NO CYCLE
+            """)
+    except Exception as e:
+        logger.error(f"[DB] Ошибка создания vdf_check_id_seq: {e}")
+
+
 def db_get_next_vdf_check_id() -> int:
     """Получить следующий check_id из общей последовательности (сайт + бот)."""
     conn = _get_conn()
