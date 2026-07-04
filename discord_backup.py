@@ -1,7 +1,7 @@
 """
 Discord-based backup for PostgreSQL database.
-Dumps the database, compresses it, and uploads to a Discord channel.
-Can also download the latest backup from Discord for restore.
+Dumps the database using psycopg2, compresses it, and uploads to a Discord channel.
+No external tools needed (no pg_dump).
 
 Requires:
   - DATABASE_URL: PostgreSQL connection string
@@ -10,73 +10,116 @@ Requires:
 import os
 import io
 import gzip
+import json
 import logging
-import subprocess
 import tempfile
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, timezone
 
 logger = logging.getLogger("discord_backup")
 
 
-def _get_channel_id():
-    return int(os.getenv("BACKUP_CHANNEL_ID", "0") or "0")
-
-
-def _run_pg_dump(output_path: str) -> bool:
-    db_url = os.getenv("DATABASE_URL", "").strip()
-    if not db_url:
-        logger.error("[Backup] DATABASE_URL не задана")
-        return False
+def _get_conn():
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return None
     try:
-        result = subprocess.run(
-            ["pg_dump", "--no-owner", "--no-privileges", "-Fc", "-f", output_path, db_url],
-            capture_output=True, text=True, timeout=600
-        )
-        if result.returncode != 0:
-            logger.error(f"[Backup] pg_dump ошибка: {result.stderr}")
-            return False
-        logger.info(f"[Backup] pg_dump выполнен: {output_path}")
-        return True
-    except FileNotFoundError:
-        logger.error("[Backup] pg_dump не найден — установите postgresql-client")
-        return False
-    except subprocess.TimeoutExpired:
-        logger.error("[Backup] pg_dump таймаут (600с)")
-        return False
+        conn = psycopg2.connect(url, connect_timeout=30, sslmode="require")
+        return conn
     except Exception as e:
-        logger.error(f"[Backup] pg_dump ошибка: {e}")
-        return False
+        logger.error(f"[Backup] Ошибка подключения: {e}")
+        return None
+
+
+def _dump_table(cur, table_name: str) -> str:
+    cur.execute(f'SELECT * FROM "{table_name}"')
+    rows = cur.fetchall()
+    if not rows:
+        return ""
+    cols = [desc[0] for desc in cur.description]
+    lines = []
+    for row in rows:
+        vals = []
+        for v in row:
+            if v is None:
+                vals.append("NULL")
+            elif isinstance(v, bool):
+                vals.append("TRUE" if v else "FALSE")
+            elif isinstance(v, (int, float)):
+                vals.append(str(v))
+            elif isinstance(v, (dict, list)):
+                escaped = json.dumps(v, ensure_ascii=False).replace("'", "''")
+                vals.append(f"'{escaped}'::jsonb")
+            else:
+                escaped = str(v).replace("'", "''")
+                vals.append(f"'{escaped}'")
+        lines.append(f"INSERT INTO \"{table_name}\" ({', '.join(cols)}) VALUES ({', '.join(vals)});")
+    return "\n".join(lines)
 
 
 def create_dump_bytes() -> tuple[bytes, str] | None:
-    tmp_dir = tempfile.mkdtemp(prefix="discord_bak_")
-    dump_path = os.path.join(tmp_dir, "backup.dump")
-    gz_path = dump_path + ".gz"
+    conn = _get_conn()
+    if not conn:
+        logger.error("[Backup] Нет подключения к БД")
+        return None
     try:
-        if not _run_pg_dump(dump_path):
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT tablename FROM pg_tables
+            WHERE schemaname = 'public'
+            ORDER BY tablename
+        """)
+        tables = [r['tablename'] for r in cur.fetchall()]
+        if not tables:
+            logger.error("[Backup] Таблицы не найдены")
             return None
-        with open(dump_path, "rb") as f_in:
-            with gzip.open(gz_path, "wb") as f_out:
-                while True:
-                    chunk = f_in.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    f_out.write(chunk)
-        with open(gz_path, "rb") as f:
-            data = f.read()
+
+        parts = [f"-- FearSearch Backup {datetime.now(timezone.utc).isoformat()}\n"]
+        for table in tables:
+            logger.info(f"[Backup] Дамп таблицы: {table}")
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM "{table}"')
+            cnt = cur.fetchone()['cnt']
+            parts.append(f"-- Table: {table} ({cnt} rows)")
+            parts.append(f'DROP TABLE IF EXISTS "{table}" CASCADE;')
+            parts.append(f'CREATE TABLE "{table}" (LIKE "{table}" INCLUDING ALL);')
+
+            cur.execute(f'SELECT * FROM "{table}"')
+            rows = cur.fetchall()
+            if rows:
+                cols = [desc[0] for desc in cur.description]
+                for row in rows:
+                    vals = []
+                    for v in row:
+                        if v is None:
+                            vals.append("NULL")
+                        elif isinstance(v, bool):
+                            vals.append("TRUE" if v else "FALSE")
+                        elif isinstance(v, (int, float)):
+                            vals.append(str(v))
+                        elif isinstance(v, (dict, list)):
+                            escaped = json.dumps(v, ensure_ascii=False).replace("\\", "\\\\").replace("'", "''")
+                            vals.append(f"'{escaped}'::jsonb")
+                        else:
+                            escaped = str(v).replace("\\", "\\\\").replace("'", "''")
+                            vals.append(f"'{escaped}'")
+                    escaped_cols = [f'"{c}"' for c in cols]
+                    parts.append(f"INSERT INTO \"{table}\" ({', '.join(escaped_cols)}) VALUES ({', '.join(vals)});")
+            parts.append("")
+
+        cur.close()
+        sql_text = "\n".join(parts)
+        compressed = gzip.compress(sql_text.encode("utf-8"), compresslevel=6)
         now = datetime.now(timezone.utc)
-        filename = f"fearsearch_backup_{now.strftime('%Y-%m-%d_%H-%M')}.dump.gz"
-        return data, filename
+        filename = f"fearsearch_backup_{now.strftime('%Y-%m-%d_%H-%M')}.sql.gz"
+        logger.info(f"[Backup] Дамп готов: {len(compressed)} bytes ({len(compressed)/1024/1024:.1f}MB)")
+        return compressed, filename
     except Exception as e:
         logger.error(f"[Backup] Ошибка создания дампа: {e}")
         return None
     finally:
         try:
-            import os as _os
-            for p in [dump_path, gz_path]:
-                if _os.path.exists(p):
-                    _os.remove(p)
-            _os.rmdir(tmp_dir)
+            conn.close()
         except Exception:
             pass
 
@@ -95,7 +138,7 @@ async def upload_backup(channel) -> dict:
     try:
         file = discord.File(io.BytesIO(data), filename=filename)
         msg = await channel.send(
-            f"☁️ **Автобэкап** — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+            f"☁️ **Бэкап** — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
             f"Размер: {size_mb:.1f}MB",
             file=file
         )
@@ -116,7 +159,7 @@ async def download_latest_backup(channel) -> tuple[bytes, str] | None:
         async for msg in channel.history(limit=50):
             if msg.attachments:
                 att = msg.attachments[0]
-                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".dump.gz"):
+                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".sql.gz"):
                     data = await att.read()
                     logger.info(f"[Backup] Скачан бэкап: {att.filename} ({len(data)} bytes)")
                     return data, att.filename
