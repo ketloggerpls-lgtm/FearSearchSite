@@ -1,7 +1,7 @@
 """
 Discord-based backup for PostgreSQL database.
-Dumps the database using psycopg2, compresses it, and uploads to a Discord channel.
-No external tools needed (no pg_dump).
+Dumps all data using psycopg2, compresses, uploads to Discord.
+No external tools needed.
 
 Requires:
   - DATABASE_URL: PostgreSQL connection string
@@ -12,7 +12,6 @@ import io
 import gzip
 import json
 import logging
-import tempfile
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timezone
@@ -23,22 +22,33 @@ logger = logging.getLogger("discord_backup")
 def _get_conn():
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:
+        logger.error("[Backup] DATABASE_URL не задана")
         return None
     try:
-        conn = psycopg2.connect(url, connect_timeout=30, sslmode="require")
+        conn = psycopg2.connect(url, connect_timeout=30)
         return conn
     except Exception as e:
         logger.error(f"[Backup] Ошибка подключения: {e}")
         return None
 
 
-def _dump_table(cur, table_name: str) -> str:
-    cur.execute(f'SELECT * FROM "{table_name}"')
+def _dump_table_sql(cur, table_name: str) -> tuple[str, int]:
+    """Выгружает одну таблицу в SQL INSERT-ы."""
+    try:
+        cur.execute(f'SELECT * FROM "{table_name}"')
+    except Exception as e:
+        logger.warning(f"[Backup] Пропуск таблицы {table_name}: {e}")
+        return "", 0
+
     rows = cur.fetchall()
     if not rows:
-        return ""
+        return "", 0
+
     cols = [desc[0] for desc in cur.description]
-    lines = []
+    escaped_cols = [f'"{c}"' for c in cols]
+    col_list = ", ".join(escaped_cols)
+
+    lines = [f'-- Table: {table_name} ({len(rows)} rows)']
     for row in rows:
         vals = []
         for v in row:
@@ -49,22 +59,32 @@ def _dump_table(cur, table_name: str) -> str:
             elif isinstance(v, (int, float)):
                 vals.append(str(v))
             elif isinstance(v, (dict, list)):
-                escaped = json.dumps(v, ensure_ascii=False).replace("'", "''")
-                vals.append(f"'{escaped}'::jsonb")
+                try:
+                    s = json.dumps(v, ensure_ascii=False, default=str)
+                    s = s.replace("\\", "\\\\").replace("'", "''")
+                    vals.append(f"'{s}'::jsonb")
+                except Exception:
+                    vals.append("NULL")
+            elif isinstance(v, bytes):
+                import base64
+                vals.append(f"'\\x{v.hex()}'::bytea")
             else:
-                escaped = str(v).replace("'", "''")
-                vals.append(f"'{escaped}'")
-        lines.append(f"INSERT INTO \"{table_name}\" ({', '.join(cols)}) VALUES ({', '.join(vals)});")
-    return "\n".join(lines)
+                s = str(v).replace("\\", "\\\\").replace("'", "''")
+                vals.append(f"'{s}'")
+        lines.append(f'INSERT INTO "{table_name}" ({col_list}) VALUES ({", ".join(vals)});')
+
+    return "\n".join(lines), len(rows)
 
 
 def create_dump_bytes() -> tuple[bytes, str] | None:
+    """Создаёт SQL-дамп всех данных в БД."""
     conn = _get_conn()
     if not conn:
-        logger.error("[Backup] Нет подключения к БД")
         return None
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Получаем все таблицы
         cur.execute("""
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
@@ -75,47 +95,40 @@ def create_dump_bytes() -> tuple[bytes, str] | None:
             logger.error("[Backup] Таблицы не найдены")
             return None
 
-        parts = [f"-- FearSearch Backup {datetime.now(timezone.utc).isoformat()}\n"]
-        for table in tables:
-            logger.info(f"[Backup] Дамп таблицы: {table}")
-            cur.execute(f'SELECT COUNT(*) AS cnt FROM "{table}"')
-            cnt = cur.fetchone()['cnt']
-            parts.append(f"-- Table: {table} ({cnt} rows)")
-            parts.append(f'DROP TABLE IF EXISTS "{table}" CASCADE;')
-            parts.append(f'CREATE TABLE "{table}" (LIKE "{table}" INCLUDING ALL);')
+        logger.info(f"[Backup] Найдено {len(tables)} таблиц: {', '.join(tables)}")
 
-            cur.execute(f'SELECT * FROM "{table}"')
-            rows = cur.fetchall()
-            if rows:
-                cols = [desc[0] for desc in cur.description]
-                for row in rows:
-                    vals = []
-                    for v in row:
-                        if v is None:
-                            vals.append("NULL")
-                        elif isinstance(v, bool):
-                            vals.append("TRUE" if v else "FALSE")
-                        elif isinstance(v, (int, float)):
-                            vals.append(str(v))
-                        elif isinstance(v, (dict, list)):
-                            escaped = json.dumps(v, ensure_ascii=False).replace("\\", "\\\\").replace("'", "''")
-                            vals.append(f"'{escaped}'::jsonb")
-                        else:
-                            escaped = str(v).replace("\\", "\\\\").replace("'", "''")
-                            vals.append(f"'{escaped}'")
-                    escaped_cols = [f'"{c}"' for c in cols]
-                    parts.append(f"INSERT INTO \"{table}\" ({', '.join(escaped_cols)}) VALUES ({', '.join(vals)});")
-            parts.append("")
+        parts = [
+            f"-- FearSearch Database Backup",
+            f"-- Created: {datetime.now(timezone.utc).isoformat()}",
+            f"-- Tables: {len(tables)}",
+            "",
+            "SET client_encoding = 'UTF8';",
+            "",
+        ]
+
+        total_rows = 0
+        for table in tables:
+            sql, rows = _dump_table_sql(cur, table)
+            if sql:
+                parts.append(sql)
+                parts.append("")
+                total_rows += rows
+                logger.info(f"[Backup] {table}: {rows} строк")
 
         cur.close()
+
         sql_text = "\n".join(parts)
+        logger.info(f"[Backup] Всего: {total_rows} строк, SQL: {len(sql_text)} bytes")
+
         compressed = gzip.compress(sql_text.encode("utf-8"), compresslevel=6)
+        logger.info(f"[Backup] Сжато: {len(compressed)} bytes ({len(compressed)/1024/1024:.2f}MB)")
+
         now = datetime.now(timezone.utc)
         filename = f"fearsearch_backup_{now.strftime('%Y-%m-%d_%H-%M')}.sql.gz"
-        logger.info(f"[Backup] Дамп готов: {len(compressed)} bytes ({len(compressed)/1024/1024:.1f}MB)")
         return compressed, filename
+
     except Exception as e:
-        logger.error(f"[Backup] Ошибка создания дампа: {e}")
+        logger.error(f"[Backup] Ошибка: {e}")
         return None
     finally:
         try:
@@ -161,9 +174,9 @@ async def download_latest_backup(channel) -> tuple[bytes, str] | None:
                 att = msg.attachments[0]
                 if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".sql.gz"):
                     data = await att.read()
-                    logger.info(f"[Backup] Скачан бэкап: {att.filename} ({len(data)} bytes)")
+                    logger.info(f"[Backup] Скачан: {att.filename} ({len(data)} bytes)")
                     return data, att.filename
-        logger.warning("[Backup] Бэкапы не найдены в канале")
+        logger.warning("[Backup] Бэкапы не найдены")
         return None
     except Exception as e:
         logger.error(f"[Backup] Ошибка скачивания: {e}")
