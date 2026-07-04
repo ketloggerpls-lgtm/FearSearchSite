@@ -11241,24 +11241,43 @@ async def cmd_backup_debug(interaction: discord.Interaction):
         await interaction.edit_original_response(content=f"❌ Ошибка: {e}")
 
 
-@tree.command(name="restore", description="Скачать последний бэкап базы из Discord")
+@tree.command(name="restore", description="Восстановить базу данных из последнего бэкапа в Discord")
 async def cmd_restore(interaction: discord.Interaction):
     ch = interaction.guild.get_channel(BACKUP_CHANNEL_ID) if interaction.guild else None
     if not ch:
         return await interaction.response.send_message("❌ Канал бэкапов не найден", ephemeral=True)
-    await interaction.response.send_message("⏳ Ищу последний бэкап...", ephemeral=True)
+    await interaction.response.send_message("⏳ Скачиваю последний бэкап...", ephemeral=True)
     try:
+        backup_data = None
+        backup_name = None
         async for msg in ch.history(limit=50):
             if msg.attachments:
                 att = msg.attachments[0]
-                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".dump.gz"):
+                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".json.gz"):
                     await interaction.edit_original_response(
-                        content=f"📦 Последний бэкап: `{att.filename}` ({att.size / 1024 / 1024:.1f}MB)\n"
-                                f"Ссылка: {att.url}\n\n"
-                                f"Для восстановления: `pg_restore --clean --no-owner -d DATABASE_URL {att.filename}`"
+                        content=f"⏳ Скачиваю `{att.filename}` ({att.size / 1024 / 1024:.1f}MB)..."
                     )
-                    return
-        await interaction.edit_original_response(content="❌ Бэкапы не найдены в канале")
+                    backup_data = await att.read()
+                    backup_name = att.filename
+                    break
+        if not backup_data:
+            return await interaction.edit_original_response(content="❌ Бэкапы не найдены в канале")
+
+        await interaction.edit_original_response(content=f"⏳ Восстанавливаю базу из `{backup_name}`...")
+        import concurrent.futures
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            result = await loop.run_in_executor(pool, discord_backup.restore_from_bytes, backup_data)
+
+        if result["success"]:
+            await interaction.edit_original_response(
+                content=f"✅ База восстановлена из `{backup_name}`\n"
+                        f"Таблиц: {result['tables_restored']}"
+            )
+        else:
+            await interaction.edit_original_response(
+                content=f"❌ Ошибка восстановления: {result['message']}"
+            )
     except Exception as e:
         await interaction.edit_original_response(content=f"❌ Ошибка: {e}")
 

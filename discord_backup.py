@@ -195,4 +195,112 @@ async def download_latest_backup(channel) -> tuple[bytes, str] | None:
         return None
 
 
+def restore_from_bytes(data: bytes) -> dict:
+    """Восстанавливает базу из JSON-дампа."""
+    result = {"success": False, "tables_restored": 0, "rows_restored": 0, "message": ""}
+    conn = _get_conn()
+    if not conn:
+        result["message"] = "Нет подключения к БД"
+        return result
+    try:
+        import gzip as _gz
+        json_bytes = _gz.decompress(data)
+        lines = json_bytes.decode("utf-8").split("\n")
+
+        cur = conn.cursor()
+        current_table = None
+        current_cols = None
+        header = None
+        rows_inserted = 0
+        tables_done = 0
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # Header
+            if "created" in obj and "version" in obj:
+                header = obj
+                logger.info(f"[Restore] Бэкап от {obj['created']}")
+                continue
+
+            # Table header
+            if "table" in obj and "columns" in obj:
+                current_table = obj["table"]
+                current_cols = obj["columns"]
+
+                # Создаём таблицу если не существует
+                col_defs = ", ".join(f'"{c}" TEXT' for c in current_cols)
+                cur.execute(f'CREATE TABLE IF NOT EXISTS "{current_table}" ({col_defs})')
+                # Очищаем перед вставкой
+                cur.execute(f'TRUNCATE "{current_table}" CASCADE')
+                rows_inserted = 0
+                continue
+
+            # Footer
+            if "tables_done" in obj:
+                if current_table:
+                    tables_done += 1
+                    logger.info(f"[Restore] {current_table}: {rows_inserted} строк")
+                continue
+
+            # Data row
+            if current_table and current_cols:
+                # Вставляем строку
+                placeholders = ", ".join(["%s"] * len(current_cols))
+                col_names = ", ".join(f'"{c}"' for c in current_cols)
+                values = []
+                for c in current_cols:
+                    v = obj.get(c)
+                    if isinstance(v, (dict, list)):
+                        v = json.dumps(v, ensure_ascii=False)
+                    values.append(v)
+                try:
+                    cur.execute(
+                        f'INSERT INTO "{current_table}" ({col_names}) VALUES ({placeholders})',
+                        values
+                    )
+                    rows_inserted += 1
+                except Exception as e:
+                    # Если колонка не существует — пересоздаём таблицу
+                    conn.rollback()
+                    logger.warning(f"[Restore] Ошибка в {current_table}: {e}, пересоздаю таблицу")
+                    cur = conn.cursor()
+                    col_defs = ", ".join(f'"{c}" TEXT' for c in current_cols)
+                    cur.execute(f'DROP TABLE IF EXISTS "{current_table}"')
+                    cur.execute(f'CREATE TABLE "{current_table}" ({col_defs})')
+                    col_names = ", ".join(f'"{c}"' for c in current_cols)
+                    cur.execute(
+                        f'INSERT INTO "{current_table}" ({col_names}) VALUES ({placeholders})',
+                        values
+                    )
+                    rows_inserted += 1
+
+        conn.commit()
+        cur.close()
+
+        result["success"] = True
+        result["tables_restored"] = tables_done
+        result["rows_restored"] = sum(1 for l in lines if l.strip())  # approx
+        result["message"] = f"Восстановлено {tables_done} таблиц"
+        logger.info(f"[Restore] {result['message']}")
+        return result
+
+    except Exception as e:
+        conn.rollback()
+        result["message"] = f"Ошибка: {e}"
+        logger.error(f"[Restore] {result['message']}")
+        return result
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 import discord
