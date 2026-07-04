@@ -628,7 +628,7 @@ def _add_history(steam_id: str, event: str):
     _history[steam_id] = [
         e for e in _history[steam_id]
         if datetime.fromisoformat(e["time"]).timestamp() > cutoff
-    ]
+    ][:100]  # Лимит 100 записей на игрока
     _save_history()
 
 # ── Скор подозрительности ─────────────────────────────────────────────────────
@@ -5067,6 +5067,14 @@ def _save_vdf_check(results: list[dict], filename: str, attachment_url: str = ""
         "message_url": message_url,
         "steamids": [r.get("steamid") for r in results if r.get("steamid")],
     }
+
+    # ── Ограничиваем память: храним только последние 50 VDF-проверок ──
+    VDF_MAX_IN_MEMORY = 50
+    if len(_vdf_checks) > VDF_MAX_IN_MEMORY:
+        oldest_keys = sorted(_vdf_checks.keys())[:len(_vdf_checks) - VDF_MAX_IN_MEMORY]
+        for k in oldest_keys:
+            _vdf_checks.pop(k, None)
+
     _save_vdf_checks_to_file()
 
     # ── Сохраняем в PostgreSQL ──
@@ -7740,6 +7748,12 @@ async def ban_check_loop():
                 if (now_time - _ban_last_check_ts.get(sid, 0)) >= BAN_RECHECK_INTERVAL
             ]
 
+            # Очистка старых записей (>1 час)
+            stale_cutoff = now_time - 3600
+            stale_keys = [k for k, v in _ban_last_check_ts.items() if v < stale_cutoff]
+            for k in stale_keys:
+                _ban_last_check_ts.pop(k, None)
+
             if not to_check_ids:
                 return
 
@@ -9165,6 +9179,7 @@ def _parse_vdf_steamids(text: str) -> list[str]:
     return list(dict.fromkeys(found))  # уникальные, сохраняя порядок
 
 _fear_profile_cache: dict = {}
+FEAR_PROFILE_CACHE_MAX = 500  # Лимит кэша профилей
 
 # Кэш для быстрых VDF-проверок (SteamID -> (data, timestamp))
 _yooma_cache: dict[str, tuple[dict, float]] = {}
@@ -9177,6 +9192,7 @@ FEAR_FAST_CACHE_TTL = 300
 _vdf_semaphore = asyncio.Semaphore(100)
 # Кэш Fear профилей для VDF (чтобы не дёргать API повторно для одних и тех же SteamID)
 _vdf_fear_cache: dict = {}
+VDF_FEAR_CACHE_MAX = 300  # Лимит VDF кэша
 # Callback для уведомления об окончании обновления кэша стаффа
 _staff_cache_done_callbacks: list = []
 # Уже отправленные уведомления о репортах: intruder_steamid -> frozenset(report_ids)
@@ -9357,6 +9373,11 @@ async def _fetch_json_cached(steamid: str) -> dict | None:
         data = await _fetch_json(session, f"{API_BASE}/profile/{steamid}")
         if data:
             _fear_profile_cache[steamid] = data
+            # Ограничение памяти: оставляем последние 500
+            if len(_fear_profile_cache) > FEAR_PROFILE_CACHE_MAX:
+                keys = list(_fear_profile_cache.keys())[:len(_fear_profile_cache) - FEAR_PROFILE_CACHE_MAX]
+                for k in keys:
+                    _fear_profile_cache.pop(k, None)
         return data
 
 async def _fetch_fear_profile(session: aiohttp.ClientSession, steamid: str, retries: int = 2) -> dict | None:
@@ -10657,6 +10678,7 @@ DROPS_FILE = Path(__file__).parent / "drops_log.json"
 DROPS_API = f"{API_BASE}/drops/feed"
 _drops_log: dict = {}  # {drop_id: {...}}
 _drops_known_ids: set = set()
+DROPS_MAX_IN_MEMORY = 5000  # Лимит памяти для дропов
 
 def _load_drops():
     global _drops_log, _drops_known_ids
@@ -10667,14 +10689,19 @@ def _load_drops():
         except Exception:
             _drops_log = {}
             _drops_known_ids = set()
-    # Также загружаем из БД, чтобы не терять записи после рестарта
+    # Также загружаем из БД, чтобы не терять записи после рестарта (только последние 5000)
     try:
-        db_rows = db.db_get_drops(since_ts=0, limit=50000)
+        db_rows = db.db_get_drops(since_ts=0, limit=DROPS_MAX_IN_MEMORY)
         for row in db_rows:
             did = str(row.get("id", ""))
             if did:
                 _drops_log[did] = row
                 _drops_known_ids.add(did)
+        # Обрезаем до лимита
+        if len(_drops_log) > DROPS_MAX_IN_MEMORY:
+            sorted_keys = sorted(_drops_log.keys(), key=lambda k: _drops_log[k].get("created_at", ""))[-DROPS_MAX_IN_MEMORY:]
+            _drops_log = {k: _drops_log[k] for k in sorted_keys}
+            _drops_known_ids = set(_drops_log.keys())
     except Exception as e:
         _log(f"⚠️ drops DB load error: {e}", discord=False)
 
@@ -10733,6 +10760,11 @@ async def drops_loop():
             new_count += 1
 
         if new_count:
+            # Ограничиваем память: оставляем только последние DROPS_MAX_IN_MEMORY
+            if len(_drops_log) > DROPS_MAX_IN_MEMORY:
+                sorted_keys = sorted(_drops_log.keys(), key=lambda k: _drops_log[k].get("created_at", ""))[-DROPS_MAX_IN_MEMORY:]
+                _drops_log = {k: _drops_log[k] for k in sorted_keys}
+                _drops_known_ids = set(_drops_log.keys())
             _save_drops()
             _log(f"🎮 [DROPS] Новых дропов: {new_count}", discord=False)
 
