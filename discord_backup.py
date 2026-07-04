@@ -66,6 +66,9 @@ def create_dump_bytes() -> tuple[bytes, str] | None:
 
         logger.info(f"[Backup] Таблиц: {len(tables)}")
 
+        # Служебные таблицы бота — пропускаем (восстанавливаются автоматически)
+        SKIP_TABLES = {"kv_store", "leaderboard_cache"}
+
         dump = {
             "created": datetime.now(timezone.utc).isoformat(),
             "tables": {}
@@ -73,12 +76,22 @@ def create_dump_bytes() -> tuple[bytes, str] | None:
 
         total_rows = 0
         for table in tables:
+            if table in SKIP_TABLES:
+                logger.info(f"[Backup] {table}: ПРОПУСК (служебная)")
+                continue
             cur.execute(f'SELECT * FROM "{table}"')
             rows = cur.fetchall()
-            # Convert RealDictRow to plain dicts
-            dump["tables"][table] = [dict(r) for r in rows]
-            total_rows += len(rows)
-            logger.info(f"[Backup] {table}: {len(rows)} строк")
+            # Convert RealDictRow to plain dicts, strip huge text fields if needed
+            clean_rows = []
+            for r in rows:
+                d = dict(r)
+                # Обрезаем content в config_hashes чтобы не раздувать бэкап
+                if table == "config_hashes" and "content" in d and d["content"]:
+                    d["content"] = d["content"][:100] + "...(truncated)"
+                clean_rows.append(d)
+            dump["tables"][table] = clean_rows
+            total_rows += len(clean_rows)
+            logger.info(f"[Backup] {table}: {len(clean_rows)} строк")
 
         cur.close()
 
@@ -89,7 +102,7 @@ def create_dump_bytes() -> tuple[bytes, str] | None:
         logger.info(f"[Backup] Сжато: {len(compressed)} bytes ({len(compressed)/1024/1024:.2f}MB)")
 
         now = datetime.now(timezone.utc)
-        filename = f"fearsearch_backup_{now.strftime('%Y-%m-%d_%H-%M')}.sql.gz"
+        filename = f"fearsearch_backup_{now.strftime('%Y-%m-%d_%H-%M')}.json.gz"
         return compressed, filename
 
     except Exception as e:
@@ -137,7 +150,7 @@ async def download_latest_backup(channel) -> tuple[bytes, str] | None:
         async for msg in channel.history(limit=50):
             if msg.attachments:
                 att = msg.attachments[0]
-                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".sql.gz"):
+                if att.filename.startswith("fearsearch_backup_") and att.filename.endswith(".json.gz"):
                     data = await att.read()
                     logger.info(f"[Backup] Скачан: {att.filename} ({len(data)} bytes)")
                     return data, att.filename
