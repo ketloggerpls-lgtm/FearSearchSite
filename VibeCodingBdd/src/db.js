@@ -4,7 +4,7 @@ const logger = require("./logger");
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  throw new Error("DATABASE_URL is required");
+  console.warn("DATABASE_URL is not set. Database features will be unavailable.");
 }
 
 function resolveSslConfig(dbUrl) {
@@ -21,16 +21,22 @@ function resolveSslConfig(dbUrl) {
   return { rejectUnauthorized: false };
 }
 
-const pool = new Pool({
+const pool = connectionString ? new Pool({
   connectionString,
   ssl: resolveSslConfig(connectionString)
-});
+}) : null;
 
-pool.on("error", (error) => {
-  logger.error("PostgreSQL pool error", { error: error.message });
-});
+if (pool) {
+  pool.on("error", (error) => {
+    logger.error("PostgreSQL pool error", { error: error.message });
+  });
+}
 
 async function initDb() {
+  if (!pool) {
+    logger.warn("DATABASE_URL not set, skipping DB init");
+    return;
+  }
   try {
     await pool.query("SELECT 1 AS ok");
   } catch (error) {
