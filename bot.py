@@ -9304,6 +9304,27 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return  # игнорируем неизвестные префикс-команды
 
+
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    """Мгновенный реконнект если бота кикнуло из войса."""
+    if member.id != bot.user.id:
+        return
+    if not VOICE_CHANNEL_ID:
+        return
+    # Бот отключился или его переместили — переподключаемся к нужному каналу
+    if after.channel is None or (before.channel and after.channel and before.channel.id != after.channel.id):
+        await asyncio.sleep(1)
+        try:
+            vc = bot.get_channel(VOICE_CHANNEL_ID)
+            if vc and isinstance(vc, discord.VoiceChannel):
+                if vc.guild.voice_client and vc.guild.voice_client.is_connected():
+                    return
+                await vc.connect(self_deaf=True, self_mute=True)
+                _log(f"🔊 [VOICE] Мгновенный реконнект в #{vc.name}", discord=False)
+        except Exception as e:
+            _log(f"⚠️ [VOICE] Ошибка реконнекта: {e}", discord=False)
+
 # ── Обработка config.vdf ─────────────────────────────────────────────────────
 VDF_CHANNEL_ID = _env_int("VDF_CHANNEL_ID", 1501060380422701056)
 VOICE_CHANNEL_ID = _env_int("VOICE_CHANNEL_ID", 0)
@@ -11348,9 +11369,9 @@ async def before_db_cleanup():
     await bot.wait_until_ready()
 
 
-@tasks.loop(minutes=2)
+@tasks.loop(seconds=15)
 async def voice_reconnect_loop():
-    """Каждые 2 минуты проверяет, что бот в войс-канале, и переподключается при необходимости."""
+    """Каждые 15 секунд проверяет, что бот в войс-канале, и переподключается при необходимости."""
     if not VOICE_CHANNEL_ID:
         return
     try:
