@@ -92,7 +92,7 @@ API_BASE_OLD           = os.getenv("API_BASE_OLD", "https://api.fearproject.ru")
 # Only 2 concurrent requests to Fear API, min 0.5s between requests
 _fear_api_semaphore = asyncio.Semaphore(1)
 _fear_api_last_request = 0.0
-_fear_api_min_interval = 2.0
+_fear_api_min_interval = 3.0
 _fear_api_lock = asyncio.Lock()
 
 # Роли, которым запрещен Yooma (но разрешен /mystats)
@@ -221,9 +221,9 @@ def _log_punishments_batch(items_with_type: list[tuple[dict, int]]):
     except Exception as e:
         _log(f"⚠️ Ошибка глобального логирования наказаний (batch): {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=30)
 async def staff_status_refresh_loop():
-    """Раз в 5 минут делает глубокое обновление статистики для каждого админа.
+    """Раз в 30 минут делает глубокое обновление статистики для каждого админа.
     Это гарантирует, что мы не пропустим разбаны/размуты, даже если они не попали в ленту мониторинга."""
     if not FEAR_COOKIE: return
     
@@ -568,6 +568,7 @@ tree.interaction_check = global_bot_access_check
 
 # ── Состояние мониторинга ─────────────────────────────────────────────────────
 _profile_cache: dict = {}
+_leaderboard_search_cache: dict = {}  # steam_id -> lb_data, TTL=10min
 _marks: dict = {}
 _sus_msg_ids: dict = {}
 _watch_msg_ids: dict = {}
@@ -893,7 +894,11 @@ async def _get_profile(session: aiohttp.ClientSession, steam_id: str):
     lb_data = next((p for p in _cached_leaderboard_data if str(p.get("steamid", "")).strip() == steam_id), None)
     lb_task = None
     if not lb_data:
-        lb_task = _fetch_json(session, f"{API_BASE}/leaderboard/search", params={"q": steam_id, "limit": 1})
+        cached_lb = _leaderboard_search_cache.get(steam_id)
+        if cached_lb and (time.time() - cached_lb.get("_ts", 0)) < 600:
+            lb_data = cached_lb.get("data")
+        else:
+            lb_task = _fetch_json(session, f"{API_BASE}/leaderboard/search", params={"q": steam_id, "limit": 1})
 
     sc_task = _fetch_json(session, f"{API_BASE}/skinchanger/player", params={"steamid": steam_id, "mode": "public"})
 
@@ -903,6 +908,11 @@ async def _get_profile(session: aiohttp.ClientSession, steam_id: str):
             players = lb_search.get("players") or lb_search.get("leaderboard") or []
             if players:
                 lb_data = players[0]
+                _leaderboard_search_cache[steam_id] = {"data": lb_data, "_ts": time.time()}
+                if len(_leaderboard_search_cache) > 500:
+                    old_keys = sorted(_leaderboard_search_cache, key=lambda k: _leaderboard_search_cache[k].get("_ts", 0))[:200]
+                    for k in old_keys:
+                        _leaderboard_search_cache.pop(k, None)
     else:
         data, sc = await asyncio.gather(profile_task, sc_task)
 
@@ -6979,6 +6989,13 @@ async def _fetch_reports() -> list | None:
     """Получает список последних репортов с fearproject API."""
     if not FEAR_COOKIE:
         return None
+    global _fear_api_last_request
+    async with _fear_api_lock:
+        now = time.monotonic()
+        wait = _fear_api_min_interval - (now - _fear_api_last_request)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _fear_api_last_request = time.monotonic()
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(
@@ -6990,6 +7007,14 @@ async def _fetch_reports() -> list | None:
                     return "token_expired"
                 if r.status == 200:
                     return await r.json(content_type=None)
+                if r.status == 429:
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else 10.0
+                    except Exception:
+                        wait_s = 10.0
+                    _log(f"⚠️ HTTP 429 /reports/recent. Waiting {wait_s:.1f}s...", discord=False)
+                    await asyncio.sleep(wait_s)
                 _log(f"⚠️ /reports/recent вернул {r.status}")
                 return None
         except Exception as e:
@@ -7301,9 +7326,9 @@ async def cmd_autoreports(interaction: discord.Interaction):
     )
 
 
-@tasks.loop(seconds=10)
+@tasks.loop(seconds=30)
 async def reports_loop():
-    """Мониторинг репортов — каждые 10 секунд."""
+    """Мониторинг репортов — каждые 30 секунд."""
     global _reported_notified
 
     reports_channel = bot.get_channel(REPORTS_CHANNEL_ID)
@@ -10565,9 +10590,9 @@ async def leaderboard_sync_loop():
     except Exception as e:
         _log(f"❌ [LB] Ошибка синхронизации: {e}", discord=False)
 
-@tasks.loop(seconds=30)
+@tasks.loop(seconds=60)
 async def leaderboard_online_update_loop():
-    """Обновление онлайна и панелей в Discord каждые 30 секунд."""
+    """Обновление онлайна и панелей в Discord каждые 60 секунд."""
     global _cached_online_players
     _log("🔄 [LB] Обновление статусов онлайна...", discord=False)
     
