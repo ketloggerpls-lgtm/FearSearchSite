@@ -1807,7 +1807,7 @@ async def _build_suspicious_embed() -> discord.Embed:
         scored_players = []
         # Берем только топ по киллам или просто всех и скорим (ограничим для скорости)
         scan_targets = all_players[:250]
-        sem = asyncio.Semaphore(35)
+        sem = asyncio.Semaphore(5)
 
         async def _score_one(item):
             p, srv = item
@@ -1957,7 +1957,7 @@ async def cmd_scan_players(interaction: discord.Interaction):
             
             # 2. Параллельно собираем данные из всех источников
             # Используем семафор, чтобы не спамить в API
-            sem = asyncio.Semaphore(20)
+            sem = asyncio.Semaphore(5)
             
             async def scan_single_player(player, srv):
                 async with sem:
@@ -3150,7 +3150,7 @@ async def _build_newbies_embeds() -> list[discord.Embed]:
     unique_ids = list(dict.fromkeys([sid for sid, _, _ in players]))
     id_to_server = {sid: (srv_name, srv_connect) for sid, srv_name, srv_connect in players}
 
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(5)
     newbies: list[tuple[str, str, str, str, float]] = []
     async with aiohttp.ClientSession() as session:
         async def fetch_one(sid: str):
@@ -3258,7 +3258,7 @@ async def _build_admin_online_embeds() -> list[discord.Embed]:
             timestamp=now
         )]
 
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(5)
     async with aiohttp.ClientSession() as session:
         async def fetch_one(entry: dict):
             async with sem:
@@ -3477,7 +3477,7 @@ async def _refresh_admin_online_cache() -> list[dict]:
         bot._admin_online_cache = []
         return []
 
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(5)
     async with aiohttp.ClientSession() as session:
         async def fetch_one(entry: dict):
             async with sem:
@@ -3907,6 +3907,7 @@ async def _fetch_all_mutes_global(session: aiohttp.ClientSession) -> list:
             return all_mutes
 
         page += 1
+        await asyncio.sleep(1.0)
 
     _log(f"⚠️ [ЧСО] Лимит 500 страниц.", discord=False)
     return all_mutes
@@ -4167,7 +4168,7 @@ async def _fetch_new_staff_punishments(
             except Exception:
                 pass
             
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1.0)
 
     # Дедупликация (одно и то же наказание могло попасть в разные списки при смене статуса)
     dedup = {}
@@ -4536,7 +4537,7 @@ async def cmd_fear_search(interaction: discord.Interaction, reason: str):
                 content=f"🔍 Найдено {total_items} записей ({total_pages} стр.). Сканирую всё, подожди..."
             )
             
-            sem = asyncio.Semaphore(20)
+            sem = asyncio.Semaphore(3)
             
             async def fetch_page(page_num):
                 async with sem:
@@ -4870,7 +4871,7 @@ async def cmd_findstaff(interaction: discord.Interaction, query: str):
         all_sids = list({(admin.get("steamid") or "").strip() for admin in admins if admin.get("steamid")})
 
         async with aiohttp.ClientSession() as session:
-            sem = asyncio.Semaphore(20)
+            sem = asyncio.Semaphore(3)
             async def fetch_one(sid):
                 async with sem:
                     return sid, await _get_profile(session, sid)
@@ -6110,68 +6111,128 @@ def _fear_api_headers() -> dict:
 
 async def _fear_api_get(session: aiohttp.ClientSession, path: str, params: dict = None) -> dict | list | None:
     url = f"{API_BASE}{path}"
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with session.get(url, params=params, headers=_fear_api_headers(), timeout=timeout) as r:
-            if r.status == 200:
-                return await r.json(content_type=None)
-            body = await r.text()
-            _log(f"⚠️ [FEAR API GET] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
-            return None
-    except Exception as e:
-        _log(f"❌ [FEAR API GET] {path}: {e}", discord=False)
-        return None
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with session.get(url, params=params, headers=_fear_api_headers(), timeout=timeout) as r:
+                if r.status == 200:
+                    return await r.json(content_type=None)
+                if r.status == 429:
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else min(1.5 ** attempt, 30.0)
+                    except Exception:
+                        wait_s = min(1.5 ** attempt, 30.0)
+                    _log(f"⚠️ [FEAR API GET] 429 {path}. Waiting {wait_s:.1f}s (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_s)
+                    continue
+                body = await r.text()
+                _log(f"⚠️ [FEAR API GET] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
+                return None
+        except Exception as e:
+            _log(f"❌ [FEAR API GET] {path}: {e}", discord=False)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+            else:
+                return None
+    return None
 
 
 async def _fear_api_post(session: aiohttp.ClientSession, path: str, payload: dict = None) -> dict | None:
     url = f"{API_BASE}{path}"
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with session.post(url, json=payload, headers=_fear_api_headers(), timeout=timeout) as r:
-            body = await r.text()
-            if r.status in (200, 201):
-                try:
-                    return await r.json(content_type=None)
-                except Exception:
-                    return {"ok": True, "raw": body[:500]}
-            _log(f"⚠️ [FEAR API POST] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
-            return None
-    except Exception as e:
-        _log(f"❌ [FEAR API POST] {path}: {e}", discord=False)
-        return None
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with session.post(url, json=payload, headers=_fear_api_headers(), timeout=timeout) as r:
+                body = await r.text()
+                if r.status in (200, 201):
+                    try:
+                        return await r.json(content_type=None)
+                    except Exception:
+                        return {"ok": True, "raw": body[:500]}
+                if r.status == 429:
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else min(1.5 ** attempt, 30.0)
+                    except Exception:
+                        wait_s = min(1.5 ** attempt, 30.0)
+                    _log(f"⚠️ [FEAR API POST] 429 {path}. Waiting {wait_s:.1f}s (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_s)
+                    continue
+                _log(f"⚠️ [FEAR API POST] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
+                return None
+        except Exception as e:
+            _log(f"❌ [FEAR API POST] {path}: {e}", discord=False)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+            else:
+                return None
+    return None
 
 
 async def _fear_api_put(session: aiohttp.ClientSession, path: str, payload: dict = None) -> dict | None:
     url = f"{API_BASE}{path}"
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with session.put(url, json=payload, headers=_fear_api_headers(), timeout=timeout) as r:
-            body = await r.text()
-            if r.status in (200, 201, 204):
-                try:
-                    return await r.json(content_type=None)
-                except Exception:
-                    return {"ok": True, "raw": body[:500]}
-            _log(f"⚠️ [FEAR API PUT] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
-            return None
-    except Exception as e:
-        _log(f"❌ [FEAR API PUT] {path}: {e}", discord=False)
-        return None
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with session.put(url, json=payload, headers=_fear_api_headers(), timeout=timeout) as r:
+                body = await r.text()
+                if r.status in (200, 201, 204):
+                    try:
+                        return await r.json(content_type=None)
+                    except Exception:
+                        return {"ok": True, "raw": body[:500]}
+                if r.status == 429:
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else min(1.5 ** attempt, 30.0)
+                    except Exception:
+                        wait_s = min(1.5 ** attempt, 30.0)
+                    _log(f"⚠️ [FEAR API PUT] 429 {path}. Waiting {wait_s:.1f}s (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_s)
+                    continue
+                _log(f"⚠️ [FEAR API PUT] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
+                return None
+        except Exception as e:
+            _log(f"❌ [FEAR API PUT] {path}: {e}", discord=False)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+            else:
+                return None
+    return None
 
 
 async def _fear_api_delete(session: aiohttp.ClientSession, path: str) -> bool:
     url = f"{API_BASE}{path}"
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with session.delete(url, headers=_fear_api_headers(), timeout=timeout) as r:
-            if r.status in (200, 204):
-                return True
-            body = await r.text()
-            _log(f"⚠️ [FEAR API DELETE] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
-            return False
-    except Exception as e:
-        _log(f"❌ [FEAR API DELETE] {path}: {e}", discord=False)
-        return False
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with session.delete(url, headers=_fear_api_headers(), timeout=timeout) as r:
+                if r.status in (200, 204):
+                    return True
+                if r.status == 429:
+                    retry_after = r.headers.get("Retry-After")
+                    try:
+                        wait_s = float(retry_after) if retry_after else min(1.5 ** attempt, 30.0)
+                    except Exception:
+                        wait_s = min(1.5 ** attempt, 30.0)
+                    _log(f"⚠️ [FEAR API DELETE] 429 {path}. Waiting {wait_s:.1f}s (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_s)
+                    continue
+                body = await r.text()
+                _log(f"⚠️ [FEAR API DELETE] {path} -> HTTP {r.status}: {body[:200]}", discord=False)
+                return False
+        except Exception as e:
+            _log(f"❌ [FEAR API DELETE] {path}: {e}", discord=False)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+            else:
+                return False
+    return False
 
 
 # ── /addadmin ────────────────────────────────────────────────────────────────
@@ -7759,7 +7820,7 @@ async def ban_check_loop():
 
             _log(f"🔍 [BAN CHECK] Проверяю {len(to_check_ids)} из {len(online)} онлайн", discord=False)
 
-            ban_sem = asyncio.Semaphore(35)
+            ban_sem = asyncio.Semaphore(5)
             async def _check_one(sid):
                 async with ban_sem:
                     await _notify_bans_for_player(sid, online[sid], channel, session)
@@ -7874,7 +7935,7 @@ async def monitor_loop():
             _log(f"⚡ [BAN] Новых игроков: {len(new_sids)}, проверяю сразу...", discord=False)
             channel = bot.get_channel(BAN_NOTIFY_CHANNEL_ID)
             if channel:
-                ban_sem = asyncio.Semaphore(25)
+                ban_sem = asyncio.Semaphore(5)
                 async def _check_new_one(sid: str):
                     async with ban_sem:
                         try:
@@ -8370,7 +8431,7 @@ async def _sync_discord_data(sync_all: bool = False) -> dict:
     checked = 0
     
     # Используем семафор чтобы не спамить API слишком сильно
-    sem = asyncio.Semaphore(15)
+    sem = asyncio.Semaphore(5)
 
     async def _update_one(admin_entry: dict):
         nonlocal updated, checked
@@ -9494,15 +9555,15 @@ async def _check_vdf_accounts(steamids: list[str]) -> list[dict]:
             asyncio.gather(*summary_tasks)
         )
 
-        # Yooma — с семафором 50 и кэшем 5 минут
-        yooma_sem = asyncio.Semaphore(50)
+        # Yooma — с семафором 5 и кэшем 5 минут
+        yooma_sem = asyncio.Semaphore(5)
         async def yooma_with_sem(sid: str):
             async with yooma_sem:
                 return await _check_yooma_ban(session, sid)
         yooma_future = asyncio.gather(*[yooma_with_sem(sid) for sid in steamids])
 
         # Fear — профиль, /bans/check и поиск наказаний /punishments/search (самый надёжный)
-        fear_sem = asyncio.Semaphore(50)
+        fear_sem = asyncio.Semaphore(5)
         async def fear_with_sem(sid: str):
             async with fear_sem:
                 return await _fetch_fear_fast(session, sid)
@@ -10342,7 +10403,7 @@ async def leaderboard_sync_loop():
         headers = await _fear_headers()
         async with aiohttp.ClientSession() as session:
             new_top = []
-            sem = asyncio.Semaphore(20)
+            sem = asyncio.Semaphore(3)
             
             async def fetch_lb_page(p):
                 async with sem:
@@ -10412,7 +10473,7 @@ async def leaderboard_online_update_loop():
             
             if online_top_count > 0:
                 # Ограничиваем параллельные запросы чтобы не тормозить
-                sem_lb = asyncio.Semaphore(15)
+                sem_lb = asyncio.Semaphore(5)
                 async def _fetch_with_sem(sid):
                     async with sem_lb:
                         return await _get_profile(session, sid)
