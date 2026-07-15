@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-if [ "$SERVICE_ROLE" = "bot" ]; then
+if [ -n "$DISCORD_TOKEN" ]; then
   exec python bot.py
 else
   cd /app/VibeCodingBdd
