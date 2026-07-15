@@ -9273,22 +9273,7 @@ async def on_ready():
         if not loop.is_running():
             loop.start()
 
-    # ── Автоподключение в войс-канал (микрофон и наушники выключены) ──
-    if VOICE_CHANNEL_ID:
-        try:
-            vc = bot.get_channel(VOICE_CHANNEL_ID)
-            if vc and isinstance(vc, discord.VoiceChannel):
-                if not vc.guild.voice_client or vc.guild.voice_client.channel != vc:
-                    await vc.connect(self_deaf=True, self_mute=True)
-                    _log(f"🔊 Бот вошёл в войс-канал #{vc.name} (self_deaf + self_mute)", discord=False)
-                else:
-                    _log(f"🔊 Бот уже в войс-канале #{vc.name}", discord=False)
-        except Exception as e:
-            _log(f"⚠️ Не удалось войти в войс-канал: {e}", discord=False)
-
-    # Запускаем loop reconnect для войса
-    if not voice_reconnect_loop.is_running():
-        voice_reconnect_loop.start()
+    # ── Автоподключение в войс отключено — бот сидит где его закинули через /connectvoice ──
 
     # Запускаем обработку заявок на регистрацию в панели
     if not panel_registration_loop.is_running():
@@ -9307,27 +9292,8 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    """Мгновенный реконнект ТОЛЬКО если бота полностью кикнуло из войса (after.channel = None).
-    Если его просто переместили в другой канал — не трогаем."""
-    if member.id != bot.user.id:
-        return
-    if not VOICE_CHANNEL_ID:
-        return
-    # Перемещение в другой канал — пофиг, пусть сидит где хотят
-    if before.channel and after.channel and before.channel.id != after.channel.id:
-        return
-    # Полностью отключился — переподключаемся к VOICE_CHANNEL_ID
-    if after.channel is None:
-        await asyncio.sleep(2)
-        try:
-            vc = bot.get_channel(VOICE_CHANNEL_ID)
-            if vc and isinstance(vc, discord.VoiceChannel):
-                if vc.guild.voice_client and vc.guild.voice_client.is_connected():
-                    return
-                await vc.connect(self_deaf=True, self_mute=True)
-                _log(f"🔊 [VOICE] Мгновенный реконнект в #{vc.name}", discord=False)
-        except Exception as e:
-            _log(f"⚠️ [VOICE] Ошибка реконнекта: {e}", discord=False)
+    """Бот молча сидит где его закинули. Ничего не делаем при дисконнекте."""
+    pass
 
 # ── Обработка config.vdf ─────────────────────────────────────────────────────
 VDF_CHANNEL_ID = _env_int("VDF_CHANNEL_ID", 1501060380422701056)
@@ -11373,29 +11339,7 @@ async def before_db_cleanup():
     await bot.wait_until_ready()
 
 
-@tasks.loop(seconds=15)
-async def voice_reconnect_loop():
-    """Каждые 15 секунд проверяет, что бот в войсе. Только если бот ОТВАЛИЛСЯ completely — переподключает к VOICE_CHANNEL_ID."""
-    if not VOICE_CHANNEL_ID:
-        return
-    try:
-        vc = bot.get_channel(VOICE_CHANNEL_ID)
-        if not vc or not isinstance(vc, discord.VoiceChannel):
-            return
-        guild = vc.guild
-        # Если бот подключен к ЛЮБОМУ войс-каналу — он жив, не трогаем
-        if guild.voice_client and guild.voice_client.is_connected():
-            return
-        # Только если бот нигде не в войсе — подключаемся
-        await vc.connect(self_deaf=True, self_mute=True)
-        _log(f"🔊 [VOICE] Переподключился в #{vc.name}", discord=False)
-    except Exception as e:
-        _log(f"⚠️ [VOICE] Ошибка: {e}", discord=False)
-
-
-@voice_reconnect_loop.before_loop
-async def before_voice_reconnect():
-    await bot.wait_until_ready()
+# voice_reconnect_loop removed — бот просто сидит где его закинули
 
 
 # ── Backup (Discord + Google Drive) ──
