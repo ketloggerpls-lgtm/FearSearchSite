@@ -92,7 +92,7 @@ API_BASE_OLD           = os.getenv("API_BASE_OLD", "https://api.fearproject.ru")
 # Only 2 concurrent requests to Fear API, min 0.5s between requests
 _fear_api_semaphore = asyncio.Semaphore(1)
 _fear_api_last_request = 0.0
-_fear_api_min_interval = 3.0
+_fear_api_min_interval = 5.0
 _fear_api_lock = asyncio.Lock()
 
 # Роли, которым запрещен Yooma (но разрешен /mystats)
@@ -180,6 +180,8 @@ def _log_punishments_batch(items_with_type: list[tuple[dict, int]]):
         staff_ids = {str(sid).strip() for sid in staff_db.keys() if str(sid).strip()}
         
         data = _load_all_punishments()
+        if not isinstance(data, dict) or "bans" not in data or "mutes" not in data:
+            data = {"bans": {}, "mutes": {}}
         changed = False
         
         pg_batch = []
@@ -838,10 +840,10 @@ async def _fetch_json_one(session: aiohttp.ClientSession, url: str, params: dict
                 if r.status == 429:
                     retry_after = r.headers.get("Retry-After")
                     try:
-                        wait_s = float(retry_after) if retry_after else min(3.0 ** attempt, 60.0)
+                        header_wait = float(retry_after) if retry_after else 0
                     except Exception:
-                        wait_s = min(3.0 ** attempt, 60.0)
-
+                        header_wait = 0
+                    wait_s = max(header_wait, min(5.0 * (attempt + 1), 60.0))
                     _log(f"⚠️ HTTP 429 {safe}. Waiting {wait_s:.1f}s...")
                     await asyncio.sleep(wait_s)
                     continue
@@ -2578,13 +2580,13 @@ class StaffView(discord.ui.View):
             start = datetime.now()
             async with aiohttp.ClientSession() as session:
                 updated = 0
-                for i in range(0, len(staff_list), 5):
-                    batch = staff_list[i:i + 5]
+                for i in range(0, len(staff_list), 3):
+                    batch = staff_list[i:i + 3]
                     results = await asyncio.gather(*[
                         _update_cache_for_staff(session, entry) for entry in batch
                     ])
                     updated += sum(results)
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(2.0)
             elapsed = (datetime.now() - start).seconds
             _log(f"🔄 StaffView обновил кэш: {updated}/{len(staff_list)} за {elapsed}с")
 
@@ -2829,14 +2831,14 @@ async def cmd_staff(interaction: discord.Interaction):
             start = datetime.now()
             async with aiohttp.ClientSession() as session:
                 updated = 0
-                batch_size = 8
+                batch_size = 3
                 for i in range(0, len(staff_list), batch_size):
                     batch = staff_list[i:i + batch_size]
                     results = await asyncio.gather(*[
                         _update_cache_for_staff(session, entry) for entry in batch
                     ])
                     updated += sum(results)
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(2.0)
             elapsed = (datetime.now() - start).seconds
             _log(f"📊 /staff: обновлён кэш {updated}/{len(staff_list)} за {elapsed}с")
 
@@ -4490,7 +4492,7 @@ async def cmd_staff_force_update(interaction: discord.Interaction):
                 "name": name
             })
             # Короткая пауза чтобы не перегружать API
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(2.0)
 
     # После глубокого обновления — принудительно обновляем панель
     await staffboard_panel_loop()
@@ -8681,7 +8683,7 @@ async def staff_cache_loop():
     start = datetime.now()
     async with aiohttp.ClientSession() as session:
         updated = 0
-        batch_size = 5
+        batch_size = 3
         for i in range(0, len(staff), batch_size):
             batch = staff[i:i + batch_size]
             names = ", ".join(e.get("name", e.get("steamid","?")) for e in batch)
@@ -8690,7 +8692,7 @@ async def staff_cache_loop():
                 _update_cache_for_staff(session, entry) for entry in batch
             ])
             updated += sum(results)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(2.0)
     elapsed = (datetime.now() - start).seconds
     _log(f"✅ Кэш обновлён: {updated}/{len(staff)} за {elapsed}с")
 
