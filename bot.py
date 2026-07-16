@@ -2580,13 +2580,12 @@ class StaffView(discord.ui.View):
             start = datetime.now()
             async with aiohttp.ClientSession() as session:
                 updated = 0
-                for i in range(0, len(staff_list), 3):
-                    batch = staff_list[i:i + 3]
-                    results = await asyncio.gather(*[
-                        _update_cache_for_staff(session, entry) for entry in batch
-                    ])
-                    updated += sum(results)
-                    await asyncio.sleep(2.0)
+                for i, entry in enumerate(staff_list):
+                    ok = await _update_cache_for_staff(session, entry)
+                    if ok:
+                        updated += 1
+                    if i < len(staff_list) - 1:
+                        await asyncio.sleep(2.0)
             elapsed = (datetime.now() - start).seconds
             _log(f"🔄 StaffView обновил кэш: {updated}/{len(staff_list)} за {elapsed}с")
 
@@ -2831,14 +2830,12 @@ async def cmd_staff(interaction: discord.Interaction):
             start = datetime.now()
             async with aiohttp.ClientSession() as session:
                 updated = 0
-                batch_size = 3
-                for i in range(0, len(staff_list), batch_size):
-                    batch = staff_list[i:i + batch_size]
-                    results = await asyncio.gather(*[
-                        _update_cache_for_staff(session, entry) for entry in batch
-                    ])
-                    updated += sum(results)
-                    await asyncio.sleep(2.0)
+                for i, entry in enumerate(staff_list):
+                    ok = await _update_cache_for_staff(session, entry)
+                    if ok:
+                        updated += 1
+                    if i < len(staff_list) - 1:
+                        await asyncio.sleep(2.0)
             elapsed = (datetime.now() - start).seconds
             _log(f"📊 /staff: обновлён кэш {updated}/{len(staff_list)} за {elapsed}с")
 
@@ -8203,9 +8200,10 @@ async def before_monitor():
 FEARSEARCH_LOCAL = "http://127.0.0.1:8080"
 PUNISH_SEARCH_URL = f"{API_BASE}/punishments/search"
 
-async def _fetch_all_punishments(session: aiohttp.ClientSession, steamid: str, ptype: int) -> list:
-    """Листает все страницы наказаний для админа по типу (1=баны, 2=муты).
-    Без фильтра по status — API возвращает все статусы."""
+async def _fetch_all_punishments(session: aiohttp.ClientSession, steamid: str, ptype: int, max_pages: int = 10) -> list | None:
+    """Листает страницы наказаний для админа по типу (1=баны, 2=муты).
+    Возвращает список или None если API недоступен (429/ошибка).
+    max_pages: максимальное кол-во страниц (20 штук на страницу)."""
     headers = {
         "Cookie": FEAR_COOKIE,
         "Referer": "https://fearproject.ru/",
@@ -8215,13 +8213,17 @@ async def _fetch_all_punishments(session: aiohttp.ClientSession, steamid: str, p
     limit = 20
     result = []
     page = 1
-    max_pages = 50
+    api_error = False
     
     while page <= max_pages:
         params = {"q": steamid, "page": page, "limit": limit, "type": ptype}
         data = await _fetch_json(session, PUNISH_SEARCH_URL, params=params, headers=headers)
         
-        if not data or "punishments" not in data:
+        if data is None:
+            api_error = True
+            break
+        
+        if "punishments" not in data:
             break
         
         raw = data.get("punishments") or []
@@ -8232,12 +8234,13 @@ async def _fetch_all_punishments(session: aiohttp.ClientSession, steamid: str, p
         
         result.extend([p for p in raw if str(p.get("admin_steamid") or "").strip() == str(steamid)])
         
-        # Если страница неполная — следующих нет
         if len(raw) < limit:
             break
         
         page += 1
     
+    if api_error and not result:
+        return None
     return result
 
 async def _fetch_punishment_by_id_global(session: aiohttp.ClientSession, pid: int | str) -> dict | None:
@@ -8298,13 +8301,17 @@ async def _update_cache_for_staff(session: aiohttp.ClientSession, entry: dict) -
         bans = await _fetch_all_punishments(session, sid, 1)
         mutes = await _fetch_all_punishments(session, sid, 2)
 
+        # 2. Если API вернул ошибку (None) — не перезаписываем кэш
+        if bans is None or mutes is None:
+            _log(f"⚠️ API недоступен для {name}, кэш сохранён", discord=False)
+            return False
+
         path = CACHE_DIR / f"fearsearch_bans_{sid}.json"
 
-        # 2. Если оба списка пустые — возможно ошибка API. Сохраняем только если кэша нет.
+        # 3. Если оба списка пустые — возможно нет данных. Сохраняем только если кэша нет.
         if not bans and not mutes:
             old_cache = _load_cache(sid)
             if old_cache and (old_cache.get("bans") or old_cache.get("mutes")):
-                _log(f"⚠️ API вернул пустой результат для {name}, сохраняю старый кэш", discord=False)
                 return False
 
         # 3. Сохраняем атомарно под lock
@@ -8688,22 +8695,22 @@ async def staff_cache_loop():
     staff = _load_staff_list()
     if not staff:
         return
-    _log(f"🔄 Обновление кэша стаффа ({len(staff)} чел.) параллельно...")
+    _log(f"🔄 Обновление кэша стаффа ({len(staff)} чел.)...")
     start = datetime.now()
     async with aiohttp.ClientSession() as session:
         updated = 0
-        batch_size = 3
-        for i in range(0, len(staff), batch_size):
-            batch = staff[i:i + batch_size]
-            names = ", ".join(e.get("name", e.get("steamid","?")) for e in batch)
-            _log(f"  📦 Батч {i//batch_size + 1}: {names}")
-            results = await asyncio.gather(*[
-                _update_cache_for_staff(session, entry) for entry in batch
-            ])
-            updated += sum(results)
-            await asyncio.sleep(2.0)
+        skipped = 0
+        for i, entry in enumerate(staff):
+            name = entry.get("name", entry.get("steamid", "?"))
+            ok = await _update_cache_for_staff(session, entry)
+            if ok:
+                updated += 1
+            else:
+                skipped += 1
+            if i < len(staff) - 1:
+                await asyncio.sleep(2.0)
     elapsed = (datetime.now() - start).seconds
-    _log(f"✅ Кэш обновлён: {updated}/{len(staff)} за {elapsed}с")
+    _log(f"✅ Кэш обновлён: {updated}/{len(staff)} за {elapsed}с (пропущено {skipped})")
 
     # Уведомляем всех кто ждёт завершения
     for cb in list(_staff_cache_done_callbacks):
@@ -8712,7 +8719,6 @@ async def staff_cache_loop():
         except Exception as e:
             _log(f"⚠️ callback ошибка: {e}")
     _staff_cache_done_callbacks.clear()
-    _log(f"✅ Кэш обновлён: {updated}/{len(staff)} за {elapsed}с")
 
 @staff_cache_loop.before_loop
 async def before_staff_cache():
