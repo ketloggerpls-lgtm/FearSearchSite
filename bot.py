@@ -8287,18 +8287,27 @@ async def _fetch_punishment_by_id_global(session: aiohttp.ClientSession, pid: in
 
 
 async def _update_cache_for_staff(session: aiohttp.ClientSession, entry: dict) -> bool:
-    """Просто загружает ВСЕ наказания админа с сайта и перезаписывает кэш."""
+    """Загружает наказания админа с сайта. Не перезаписывает кэш пустыми данными при ошибке."""
     sid = str(entry.get("steamid", "")).strip()
     name = entry.get("name", sid)
     if not sid:
         return False
 
     try:
-        # 1. Запрашиваем баны (type=1) и муты (type=2) — API без status возвращает все статусы
+        # 1. Запрашиваем баны (type=1) и муты (type=2)
         bans = await _fetch_all_punishments(session, sid, 1)
         mutes = await _fetch_all_punishments(session, sid, 2)
 
-        # 2. Сохраняем атомарно под lock
+        path = CACHE_DIR / f"fearsearch_bans_{sid}.json"
+
+        # 2. Если оба списка пустые — возможно ошибка API. Сохраняем только если кэша нет.
+        if not bans and not mutes:
+            old_cache = _load_cache(sid)
+            if old_cache and (old_cache.get("bans") or old_cache.get("mutes")):
+                _log(f"⚠️ API вернул пустой результат для {name}, сохраняю старый кэш", discord=False)
+                return False
+
+        # 3. Сохраняем атомарно под lock
         async with _staff_cache_lock:
             cache = {
                 "bans": bans,
@@ -8306,10 +8315,9 @@ async def _update_cache_for_staff(session: aiohttp.ClientSession, entry: dict) -
                 "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "method": "search_api"
             }
-            path = CACHE_DIR / f"fearsearch_bans_{sid}.json"
             _save_json_atomic(path, cache)
 
-        # 3. Сохраняем профиль в PostgreSQL
+        # 4. Сохраняем профиль в PostgreSQL
         try:
             pg_headers = {
                 "Cookie": FEAR_COOKIE,
@@ -10447,13 +10455,22 @@ async def cmd_mystats(interaction: discord.Interaction):
     """Показывает статистику текущего пользователя (по Discord ID)."""
     await interaction.response.defer(ephemeral=True)
 
-    # Ищем себя в базе стаффа
+    # Ищем себя в базе стаффа (сначала по discord_id, потом по Discord нику)
     db_entry = _get_staff_by_discord(str(interaction.user.id))
+
+    if not db_entry:
+        # Fallback: поиск по Discord нику (display name)
+        display_name = getattr(interaction.user, "global_name", None) or interaction.user.name
+        db_entry = _get_staff_by_discord_name(display_name)
 
     if not db_entry:
         # Ищем в полном списке админов (не только стафф)
         all_admins = _load_admins_cache()
-        admin_entry = next((a for a in all_admins if str(a.get("discord_id")) == str(interaction.user.id)), None)
+        user_id_str = str(interaction.user.id)
+        display_name = (getattr(interaction.user, "global_name", None) or interaction.user.name).lower()
+        admin_entry = next((a for a in all_admins
+            if str(a.get("discord_id")) == user_id_str
+            or (a.get("discord_nickname") or "").lower() == display_name), None)
         if admin_entry:
             db_entry = {
                 "steamid": admin_entry.get("steamid"),
@@ -10470,10 +10487,19 @@ async def cmd_mystats(interaction: discord.Interaction):
         await _sync_discord_data()
         db_entry = _get_staff_by_discord(str(interaction.user.id))
 
+        # Fallback: поиск по Discord нику после синхронизации
+        if not db_entry:
+            display_name = getattr(interaction.user, "global_name", None) or interaction.user.name
+            db_entry = _get_staff_by_discord_name(display_name)
+
         # Снова проверяем в полном списке админов после синхронизации
         if not db_entry:
             all_admins = _load_admins_cache()
-            admin_entry = next((a for a in all_admins if str(a.get("discord_id")) == str(interaction.user.id)), None)
+            user_id_str = str(interaction.user.id)
+            display_name = (getattr(interaction.user, "global_name", None) or interaction.user.name).lower()
+            admin_entry = next((a for a in all_admins
+                if str(a.get("discord_id")) == user_id_str
+                or (a.get("discord_nickname") or "").lower() == display_name), None)
             if admin_entry:
                 db_entry = {
                     "steamid": admin_entry.get("steamid"),
