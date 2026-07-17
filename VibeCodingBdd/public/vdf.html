@@ -85,6 +85,11 @@
         </div>
     </div>
 
+    <script>
+        fetch("/api/auth/me").then(function(r) {
+          if (r.status === 401) window.location.href = "/login";
+        }).catch(function() {});
+    </script>
     <script src="/vdf.js"></script>
 </body>
 </html>

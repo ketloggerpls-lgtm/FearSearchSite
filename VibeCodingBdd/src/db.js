@@ -149,6 +149,31 @@ async function initDb() {
       expires_at TIMESTAMPTZ NOT NULL
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vdf_history (
+      id SERIAL PRIMARY KEY,
+      check_id INTEGER,
+      source VARCHAR(16) DEFAULT 'bot',
+      steamid VARCHAR(32) NOT NULL,
+      nickname TEXT,
+      fear_banned BOOLEAN DEFAULT FALSE,
+      fear_reason TEXT,
+      fear_unban_time TEXT,
+      vac_banned BOOLEAN DEFAULT FALSE,
+      vac_days_ago INTEGER DEFAULT 0,
+      game_bans INTEGER DEFAULT 0,
+      yooma_banned BOOLEAN DEFAULT FALSE,
+      yooma_reason TEXT,
+      admin_group TEXT,
+      config_hash VARCHAR(64),
+      filename TEXT,
+      attachment_url TEXT,
+      message_url TEXT,
+      on_fear BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 }
 
 async function createRefreshRun() {
@@ -640,12 +665,48 @@ function verifyPassword(password, hash, salt) {
   return result === hash;
 }
 
-async function createSiteUser(username, password, discordName, discordId) {
+async function findAdminByDiscordId(discordId) {
+  if (!discordId) return null;
+  const result = await pool.query(`
+    SELECT a.steamid, a.group_name, a.group_display_name, a.immunity, a.admin_id,
+           COALESCE(p.name, a.raw_json->>'name') AS name
+    FROM admins a
+    LEFT JOIN profiles p ON p.steamid = a.steamid
+    WHERE COALESCE(
+      p.discord_id,
+      p.raw_json->>'providerUserId',
+      p.raw_json->>'provider_user_id',
+      p.raw_json->>'discordId',
+      p.raw_json->>'discord_id',
+      p.raw_json->'discord'->>'id',
+      p.raw_json->'discord'->>'userId'
+    ) = $1
+    LIMIT 1
+  `, [String(discordId)]);
+  return result.rows[0] || null;
+}
+
+const STAFF_ROLE_RANK = {
+  "GLADMIN": 10, "Гл. Администратор": 10,
+  "STADMIN": 9, "Ст. Администратор": 9, "Ст. Админ": 9,
+  "STMODER": 8, "Ст. Модератор": 8, "Ст. Модер": 8,
+  "STAFF": 7, "Стафф": 7,
+  "MODER": 6, "Модератор": 6,
+  "MLMODER": 5, "Мл.Модератор": 5, "Мл. Модератор": 5,
+  "admin": 4, "admin+": 4,
+};
+const MIN_SITE_ROLE_RANK = 5;
+
+function getSiteRoleRank(groupName) {
+  return STAFF_ROLE_RANK[groupName] ?? 0;
+}
+
+function createSiteUser(username, password, discordName, discordId, role) {
   const { hash, salt } = hashPassword(password);
   const result = await pool.query(
     `INSERT INTO site_users (username, password_hash, password_salt, discord_name, discord_id, role)
-     VALUES ($1, $2, $3, $4, $5, 'user') RETURNING id, username, role`,
-    [username, hash, salt, discordName || null, discordId || null]
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, role`,
+    [username, hash, salt, discordName || null, discordId || null, role || 'user']
   );
   return result.rows[0];
 }
@@ -750,5 +811,9 @@ module.exports = {
   getSiteSession,
   deleteSiteSession,
   updateSiteUserRole,
-  getStaffStatsForPeriod
+  getStaffStatsForPeriod,
+  findAdminByDiscordId,
+  getSiteRoleRank,
+  STAFF_ROLE_RANK,
+  MIN_SITE_ROLE_RANK
 };

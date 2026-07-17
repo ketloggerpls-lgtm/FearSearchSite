@@ -19,7 +19,10 @@ const {
   getSiteSession,
   deleteSiteSession,
   createSiteUser,
-  getStaffStatsForPeriod
+  getStaffStatsForPeriod,
+  findAdminByDiscordId,
+  getSiteRoleRank,
+  MIN_SITE_ROLE_RANK
 } = require("./db");
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const logger = require("./logger");
@@ -108,6 +111,12 @@ async function authMiddleware(req, res, next) {
     if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Session expired" });
     return res.redirect("/login");
   }
+  const rank = getSiteRoleRank(session.role);
+  if (rank < MIN_SITE_ROLE_RANK) {
+    res.clearCookie("session_token");
+    if (req.path.startsWith("/api/")) return res.status(403).json({ error: "Недостаточно прав" });
+    return res.redirect("/login");
+  }
   req.user = session;
   next();
 }
@@ -134,12 +143,17 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, password, discord_name, discord_id } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "Username and password required" });
-    const user = await createSiteUser(username, password, discord_name, discord_id);
+    const { username, password, discord_id } = req.body;
+    if (!username || !password || !discord_id) return res.status(400).json({ error: "Логин, пароль и Discord ID обязательны" });
+    const admin = await findAdminByDiscordId(discord_id);
+    if (!admin) return res.status(403).json({ error: "Discord ID не найден среди администраторов проекта" });
+    const rank = getSiteRoleRank(admin.group_name);
+    if (rank < MIN_SITE_ROLE_RANK) return res.status(403).json({ error: "Недостаточно прав. Доступ только для младшего модератора и выше" });
+    const roleLabel = admin.group_display_name || admin.group_name || 'Стафф';
+    const user = await createSiteUser(username, password, admin.name, discord_id, roleLabel);
     res.json({ ok: true, user });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "Username already exists" });
+    if (error.code === "23505") return res.status(409).json({ error: "Логин уже занят" });
     logger.error("Register failed", { error: error.message });
     res.status(500).json({ error: error.message });
   }

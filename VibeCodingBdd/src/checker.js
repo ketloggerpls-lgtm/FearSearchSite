@@ -243,19 +243,14 @@ function toFrontend(r) {
 
 async function saveVdfHistory(results, filename, vdfText) {
     try {
-        const checkRes = await pool.query(
-            `INSERT INTO vdf_history (source, filename, count, banned_count, attachment_url, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
-            ['site', filename || '', results.length, results.filter(r => r.fear_banned || r.vac_banned || (r.yooma_data?.found)).length, '']
-        );
-        const checkId = checkRes.rows[0].id;
         for (const r of results) {
             await pool.query(
-                `INSERT INTO vdf_history (check_id, source, steamid, nickname, fear_banned, fear_reason, fear_unban_time, vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason, admin_group, filename, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())`,
-                [checkId, 'site', r.steamid, r.nickname, r.fear_banned, r.fear_reason, r.fear_unban_ts, r.vac_banned, r.vac_days, r.game_bans,
+                `INSERT INTO vdf_history (source, steamid, nickname, fear_banned, fear_reason, fear_unban_time, vac_banned, vac_days_ago, game_bans, yooma_banned, yooma_reason, admin_group, filename, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())`,
+                ['site', r.steamid, r.nickname, r.fear_banned, r.fear_reason, r.fear_unban_ts, r.vac_banned, r.vac_days, r.game_bans,
                  Boolean(r.yooma_data?.found), (r.yooma_data?.punishments?.[0]?.reason || ''), r.admin_group, filename || '']
             );
         }
-        return checkId;
+        return true;
     } catch (e) {
         console.error('[Checker] saveVdfHistory error:', e.message);
         return null;
