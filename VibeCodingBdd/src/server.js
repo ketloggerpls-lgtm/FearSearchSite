@@ -94,7 +94,7 @@ const STAFF_ROLES = new Set(["admin", "admin+", "staff", "moder", "mlmoder", "st
 
 async function authMiddleware(req, res, next) {
   const path = req.path;
-  if (path.startsWith("/checker") || path === "/login" || path === "/api/auth/login" || path === "/api/auth/register" || path === "/api/health" || path === "/api/servers" || path === "/api/admins" || path === "/api/refresh-status" || path === "/api/staff-stats" || path === "/api/punishments/staff/stats" || path === "/api/vdf-history") {
+  if (path.startsWith("/checker") || path === "/login" || path === "/api/auth/login" || path === "/api/auth/register" || path === "/api/health") {
     return next();
   }
   const token = req.cookies?.session_token;
@@ -112,7 +112,7 @@ async function authMiddleware(req, res, next) {
   next();
 }
 
-// app.use(authMiddleware); -- disabled: site is public
+app.use(authMiddleware);
 
 app.post("/api/auth/login", async (req, res) => {
   try {

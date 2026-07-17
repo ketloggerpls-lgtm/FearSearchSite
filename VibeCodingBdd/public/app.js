@@ -1,3 +1,7 @@
+fetch("/api/auth/me").then(function(r) {
+  if (r.status === 401) window.location.href = "/login";
+}).catch(function() {});
+
 const refreshBtn = document.getElementById("refreshBtn");
 const statusEl = document.getElementById("status");
 const rowsEl = document.getElementById("rows");

@@ -57,6 +57,9 @@
         <div id="empty" class="hidden text-center text-gray-500 py-12">Нет данных за этот период</div>
     </div>
     <script>
+        fetch("/api/auth/me").then(function(r) {
+          if (r.status === 401) window.location.href = "/login";
+        }).catch(function() {});
         function esc(s) { return String(s||"").replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
         var ROLE_COLORS = {
             "\u0421\u0442\u0430\u0444\u0444": "#eab308",
