@@ -10,6 +10,7 @@
         body { font-family: 'Inter', sans-serif; background-color: #09090b; }
         .glass-panel { background: rgba(22, 22, 26, 0.9); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
         .grid-bg { background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(circle at 0 0, black 40%, transparent 80%); -webkit-mask-image: radial-gradient(circle at 0 0, black 40%, transparent 80%); }
+        .form-hidden { display: none; }
     </style>
 </head>
 <body class="text-white min-h-screen flex items-center justify-center relative overflow-hidden">
@@ -23,8 +24,9 @@
                 <h1 class="text-xl font-bold flex items-center justify-center gap-2">
                     <span class="text-[#5865F2] text-2xl">&#x1F6E1;</span> Fear Staff Sync
                 </h1>
-                <p class="text-gray-500 text-sm mt-1">Вход в панель стаффа</p>
+                <p id="formTitle" class="text-gray-500 text-sm mt-1">Вход в панель стаффа</p>
             </div>
+
             <form id="loginForm" class="space-y-4">
                 <div>
                     <label class="text-xs text-gray-400 font-medium mb-1 block">Логин</label>
@@ -39,21 +41,53 @@
                         placeholder="Введите пароль">
                 </div>
                 <div id="error" class="text-rose-400 text-sm text-center hidden"></div>
-                <button type="submit"
+                <div id="success" class="text-emerald-400 text-sm text-center hidden"></div>
+                <button type="submit" id="submitBtn"
                     class="w-full py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-sm font-semibold transition-colors">
                     Войти
                 </button>
             </form>
-            <p class="text-gray-600 text-xs text-center mt-4">Регистрация через Discord бота</p>
+
+            <p class="text-gray-500 text-xs text-center mt-4">
+                <span id="toggleText">Нет аккаунта?</span>
+                <button id="toggleBtn" class="text-[#5865F2] hover:underline font-medium ml-1">Зарегистрироваться</button>
+            </p>
         </div>
     </div>
     <script>
-        document.getElementById("loginForm").addEventListener("submit", async function(e) {
-            e.preventDefault();
-            const errEl = document.getElementById("error");
+        const loginForm = document.getElementById("loginForm");
+        const formTitle = document.getElementById("formTitle");
+        const toggleText = document.getElementById("toggleText");
+        const toggleBtn = document.getElementById("toggleBtn");
+        const submitBtn = document.getElementById("submitBtn");
+        const errEl = document.getElementById("error");
+        const successEl = document.getElementById("success");
+        let isRegister = false;
+
+        toggleBtn.addEventListener("click", function() {
+            isRegister = !isRegister;
             errEl.classList.add("hidden");
+            successEl.classList.add("hidden");
+            if (isRegister) {
+                formTitle.textContent = "Регистрация";
+                submitBtn.textContent = "Зарегистрироваться";
+                toggleText.textContent = "Уже есть аккаунт?";
+                toggleBtn.textContent = "Войти";
+            } else {
+                formTitle.textContent = "Вход в панель стаффа";
+                submitBtn.textContent = "Войти";
+                toggleText.textContent = "Нет аккаунта?";
+                toggleBtn.textContent = "Зарегистрироваться";
+            }
+        });
+
+        loginForm.addEventListener("submit", async function(e) {
+            e.preventDefault();
+            errEl.classList.add("hidden");
+            successEl.classList.add("hidden");
             try {
-                const res = await fetch("/api/auth/login", {
+                const url = isRegister ? "/api/auth/register" : "/api/auth/login";
+                const res = await fetch(url, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -63,7 +97,17 @@
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Ошибка");
-                window.location.href = "/";
+                if (isRegister) {
+                    successEl.textContent = "Аккаунт создан! Теперь войдите.";
+                    successEl.classList.remove("hidden");
+                    isRegister = false;
+                    formTitle.textContent = "Вход в панель стаффа";
+                    submitBtn.textContent = "Войти";
+                    toggleText.textContent = "Нет аккаунта?";
+                    toggleBtn.textContent = "Зарегистрироваться";
+                } else {
+                    window.location.href = "/";
+                }
             } catch (err) {
                 errEl.textContent = err.message;
                 errEl.classList.remove("hidden");
