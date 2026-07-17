@@ -31,35 +31,37 @@ const { startStaffPunishmentsSync } = require("./punishmentsSync");
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_GUILD_ID = "1358108404182159451";
-const DISCORD_ROLE_IDS = {
-  OWNER:    process.env.DISCORD_ROLE_OWNER    || "1507436855921082468",
-  CURATOR:  process.env.DISCORD_ROLE_CURATOR  || "1514077135588036698",
-  GLADMIN:  process.env.DISCORD_ROLE_GLADMIN  || "1503512406301872198",
-  STADMIN:  process.env.DISCORD_ROLE_STADMIN  || "1503512384122257408",
-  STMODER:  process.env.DISCORD_ROLE_STMODER  || "1503512364404703392",
-  STAFF:    process.env.DISCORD_ROLE_STAFF    || "",
-  MODER:    process.env.DISCORD_ROLE_MODER    || "1503512343202758666",
-  MLMODER:  process.env.DISCORD_ROLE_MLMODER  || "1503512286223138900",
-};
 const DISCORD_ROLE_RANK = {
-  [DISCORD_ROLE_IDS.OWNER]:   11,
-  [DISCORD_ROLE_IDS.CURATOR]: 10.5,
-  [DISCORD_ROLE_IDS.GLADMIN]: 10,
-  [DISCORD_ROLE_IDS.STADMIN]: 9,
-  [DISCORD_ROLE_IDS.STMODER]: 8,
-  [DISCORD_ROLE_IDS.MODER]:   6,
-  [DISCORD_ROLE_IDS.MLMODER]: 5,
+  "1358108404195000576": 15,
+  "1474420026022039674": 14,
+  "1358118675428937971": 13,
+  "1416068024972087366": 12,
+  "1358142006131687565": 11,
+  "1527002572332732446": 10,
+  "1358141957481955556": 9,
+  "1358118683142127766": 8,
+  "1416073628088401961": 7,
+  "1444034036459765894": 7,
+  "1444773596185497620": 7,
+  "1363567559122751640": 6,
+  "1438457934253396088": 6,
 };
 const DISCORD_ROLE_LABELS = {
-  [DISCORD_ROLE_IDS.OWNER]:   "Владелец",
-  [DISCORD_ROLE_IDS.CURATOR]: "Куратор",
-  [DISCORD_ROLE_IDS.GLADMIN]: "Гл. Администратор",
-  [DISCORD_ROLE_IDS.STADMIN]: "Ст. Администратор",
-  [DISCORD_ROLE_IDS.STMODER]: "Ст. Модератор",
-  [DISCORD_ROLE_IDS.MODER]:   "Модератор",
-  [DISCORD_ROLE_IDS.MLMODER]: "Мл. Модератор",
+  "1358108404195000576": "Владелец",
+  "1474420026022039674": "Куратор",
+  "1358118675428937971": "Разработчик",
+  "1416068024972087366": "Гл. Администратор",
+  "1358142006131687565": "Ст. Администратор",
+  "1527002572332732446": "Спец. Администратор",
+  "1358141957481955556": "Ст. Модератор",
+  "1358118683142127766": "Модератор",
+  "1416073628088401961": "Мл. Модератор",
+  "1444034036459765894": "Модератор Discord",
+  "1444773596185497620": "Модератор месяца",
+  "1363567559122751640": "Администратор",
+  "1438457934253396088": "Администратор +",
 };
-const MIN_DISCORD_ROLE_RANK = 5;
+const MIN_DISCORD_ROLE_RANK = 6;
 
 async function fetchDiscordMemberRoles(discordUserId) {
   if (!DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN not configured");
@@ -240,29 +242,27 @@ app.get("/api/staff-stats", async (req, res) => {
     const stats = await getStaffStatsForPeriod(monthStart, now);
 
     const ROLE_ORDER = {
-      "GLADMIN": 1, "Гл. Администратор": 1,
-      "STADMIN": 2, "Ст. Администратор": 2, "Ст. Админ": 2,
-      "STMODER": 3, "Ст. Модератор": 3,
-      "STAFF": 0, "Стафф": 0,
-      "MODER": 4, "Модератор": 4,
-      "MLMODER": 5, "Мл.Модератор": 5, "Мл. Модератор": 5,
+      "Владелец": 1,
+      "Куратор": 2,
+      "Разработчик": 3,
+      "Гл. Администратор": 4,
+      "Ст. Администратор": 5,
+      "Спец. Администратор": 6,
+      "Ст. Модератор": 7,
+      "Модератор": 8,
+      "Мл. Модератор": 9,
+      "Модератор Discord": 9,
+      "Модератор месяца": 9,
+      "Администратор": 10,
+      "Администратор +": 10,
+      "Стафф": 11,
     };
-    const ROLE_LABELS = {
-      "GLADMIN": "Гл. Администратор",
-      "STADMIN": "Ст. Администратор",
-      "STMODER": "Ст. Модератор",
-      "STAFF": "Стафф",
-      "MODER": "Модератор",
-      "MLMODER": "Мл. Модератор",
-    };
-    const EXCLUDED_ROLES = new Set(["admin", "admin+", "ADMIN", "ADMIN+"]);
     const EXCLUDED_STEAMIDS = new Set(["76561199077199811"]);
 
     const staffMap = {};
     for (const row of stats) {
       const sid = row.admin_steamid;
       const roleKey = row.role_key || "STAFF";
-      if (EXCLUDED_ROLES.has(roleKey)) continue;
       if (EXCLUDED_STEAMIDS.has(sid)) continue;
       if (!staffMap[sid]) {
         staffMap[sid] = {
@@ -292,7 +292,7 @@ app.get("/api/staff-stats", async (req, res) => {
         ...s,
         total: s.bans + s.mutes,
         role_order: ROLE_ORDER[s.role_key] ?? ROLE_ORDER[s.role] ?? 5,
-        role_label: ROLE_LABELS[s.role_key] || s.role
+        role_label: s.role || s.role_key || "Стафф"
       }))
       .sort((a, b) => a.role_order - b.role_order || b.total - a.total);
 
