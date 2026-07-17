@@ -38,8 +38,15 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
+const path = require("path");
+const publicDir = path.join(__dirname, "..", "public");
+
 app.get("/login", (_req, res) => {
-  res.sendFile(require("path").join(__dirname, "..", "public", "login.html"));
+  res.sendFile(path.join(publicDir, "login.html"));
+});
+
+app.get("/staff-stats", (_req, res) => {
+  res.sendFile(path.join(publicDir, "staff-stats.html"));
 });
 
 app.use((req, _res, next) => {
