@@ -10,7 +10,7 @@ const STAFF_STATS_STEAM_IDS = (process.env.STAFF_STATS_STEAM_IDS || '')
 const REFRESH_HOURS = Number(process.env.STAFF_PUNISHMENTS_REFRESH_HOURS || '1');
 const REFRESH_MS = REFRESH_HOURS * 60 * 60 * 1000;
 const PAGE_LIMIT = 100;
-const REQUEST_DELAY_MS = Number(process.env.STAFF_SYNC_REQUEST_DELAY_MS || '3000');
+const REQUEST_DELAY_MS = Number(process.env.STAFF_SYNC_REQUEST_DELAY_MS || '8000');
 const CONCURRENCY = 1;
 
 const STAFF_GROUP_IDS = new Set([1, 3, 5, 6]);

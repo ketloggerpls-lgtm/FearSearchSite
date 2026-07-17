@@ -237,9 +237,19 @@ app.get("/api/auth/me", async (req, res) => {
 
 app.get("/api/staff-stats", async (req, res) => {
   try {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const stats = await getStaffStatsForPeriod(monthStart, now);
+    let dateFrom, dateTo;
+    if (req.query.from && req.query.to) {
+      dateFrom = new Date(req.query.from);
+      dateTo = new Date(req.query.to);
+      if (isNaN(dateFrom.getTime()) || isNaN(dateTo.getTime())) {
+        return res.status(400).json({ error: "Invalid date format" });
+      }
+    } else {
+      const now = new Date();
+      dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+      dateTo = now;
+    }
+    const stats = await getStaffStatsForPeriod(dateFrom, dateTo);
 
     const ROLE_ORDER = {
       "Владелец": 1,
@@ -306,7 +316,7 @@ app.get("/api/staff-stats", async (req, res) => {
     res.json({
       staff: staffList,
       grouped,
-      period: { from: monthStart.toISOString(), to: now.toISOString() }
+      period: { from: dateFrom.toISOString(), to: dateTo.toISOString() }
     });
   } catch (error) {
     logger.error("Failed to get staff stats", { error: error.message });

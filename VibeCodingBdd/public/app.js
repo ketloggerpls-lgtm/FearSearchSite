@@ -7,10 +7,10 @@ var statusEl = document.getElementById("status");
 var allGridEl = document.getElementById("allGrid");
 var paginationEl = document.getElementById("pagination");
 var searchInput = document.getElementById("searchInput");
-var onlineGridEl = document.getElementById("onlineGrid");
+var onlineListEl = document.getElementById("onlineList");
 var onlineCountEl = document.getElementById("onlineCount");
 var allCountEl = document.getElementById("allCount");
-var lastUpdateEl = document.getElementById("lastUpdate");
+var onlineStatusEl = document.getElementById("onlineStatus");
 
 var PAGE_SIZE = 50;
 var currentPage = 0;
@@ -28,29 +28,41 @@ function fmtHours(seconds) {
   return Math.round(Number(seconds) / 60) + "\u043c";
 }
 
+function toMs(v) {
+  if (v == null) return null;
+  var n = Number(v);
+  if (isNaN(n)) return null;
+  if (n < 1e12) return n * 1000;
+  return n;
+}
+
 function fmtAge(created_at) {
   if (!created_at) return null;
   try {
-    var d = new Date(created_at);
+    var ts = toMs(created_at);
+    if (!ts) return null;
+    var d = new Date(ts);
     if (isNaN(d.getTime())) return null;
     var now = new Date();
-    var days = Math.floor((now - d) / 86400000);
-    if (days < 1) return "\u0441\u0435\u0433\u043e\u0434\u043d\u044f";
+    var diff = now - d;
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return "\u0442\u043e\u043b\u044c\u043a\u043e \u0447\u0442\u043e";
+    if (mins < 60) return mins + " \u043c. \u043d\u0430\u0437\u0430\u0434";
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + " \u0447. \u043d\u0430\u0437\u0430\u0434";
+    var days = Math.floor(hours / 24);
     if (days < 30) return days + " \u0434. \u043d\u0430\u0437\u0430\u0434";
     if (days < 365) return Math.floor(days / 30) + " \u043c. \u043d\u0430\u0437\u0430\u0434";
     return Math.floor(days / 365) + " \u0433. " + Math.floor((days % 365) / 30) + " \u043c.";
   } catch(e) { return null; }
 }
 
-function fmtDateShort(v) {
-  if (!v) return null;
-  try { return new Date(v).toLocaleDateString("ru-RU"); } catch(e) { return null; }
-}
-
 function teamTag(team) {
-  if (!team || team === "none" || team === "HIDE" || team === "SPEC") return '<span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;">SPEC</span>';
-  if (team === "CT") return '<span class="tag" style="background:rgba(59,130,246,0.15);color:#60a5fa;">CT</span>';
-  if (team === "T") return '<span class="tag" style="background:rgba(245,158,11,0.15);color:#fbbf24;">T</span>';
+  if (!team || team === "none" || team === "HIDE") return "";
+  var t = team.toLowerCase();
+  if (t === "ct") return '<span class="tag" style="background:rgba(59,130,246,0.15);color:#60a5fa;">ct</span>';
+  if (t === "t") return '<span class="tag" style="background:rgba(245,158,11,0.15);color:#fbbf24;">t</span>';
+  if (t === "spec") return '<span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;">spec</span>';
   return '<span class="tag" style="background:rgba(107,114,128,0.15);color:#9ca3af;">' + esc(team) + '</span>';
 }
 
@@ -64,19 +76,19 @@ function faceitBadge(level, elo) {
 
 function roleColor(groupName) {
   var map = {
-    "GLADMIN": "#f95dff", "G": "#f95dff", "\u0413\u043b. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#f95dff",
-    "STADMIN": "#22c7aa", "S": "#22c7aa", "\u0421\u0442. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#22c7aa", "\u0421\u0442. \u0410\u0434\u043c\u0438\u043d": "#22c7aa",
+    "GLADMIN": "#f95dff", "\u0413\u043b. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#f95dff",
+    "STADMIN": "#22c7aa", "\u0421\u0442. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#22c7aa", "\u0421\u0442. \u0410\u0434\u043c\u0438\u043d": "#22c7aa",
     "STMODER": "#8c56f0", "\u0421\u0442. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#8c56f0",
     "MODER": "#e75288", "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#e75288",
-    "MLMODER": "#e2bb6d", "\u041c\u043b. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#e2bb6d", "\u041c\u043b. \u041c\u043e\u0434\u0435\u0440": "#e2bb6d",
+    "MLMODER": "#e2bb6d", "\u041c\u043b. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#e2bb6d",
     "STAFF": "#eab308", "\u0421\u0442\u0430\u0444\u0444": "#eab308",
-    "admin": "#6b7280", "admin+": "#6b7280",
+    "admin": "#6b7280", "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#6b7280",
+    "admin+": "#9ca3af", "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 +": "#9ca3af",
     "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446": "#ff3c3c", "\u041a\u0443\u0440\u0430\u0442\u043e\u0440": "#ff8c00",
     "\u0420\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a": "#3a84c8",
     "\u0421\u043f\u0435\u0446. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#d39ae1",
     "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 Discord": "#bd458c",
-    "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 \u043c\u0435\u0441\u044f\u0446\u0430": "#da5f23",
-    "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#ebc04e", "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 +": "#ffcc00"
+    "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 \u043c\u0435\u0441\u044f\u0446\u0430": "#da5f23"
   };
   return map[groupName] || "#6b7280";
 }
@@ -88,26 +100,33 @@ function roleTag(groupName, groupDisplayName) {
   return '<span class="tag" style="background:' + color + '18;color:' + color + ';">' + esc(label) + '</span>';
 }
 
-function renderCard(player, isOnline) {
+function copyToClipboard(text, el) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = el.innerHTML;
+    el.innerHTML = '<i class="ph ph-check text-emerald-400 text-xs"></i>';
+    setTimeout(function() { el.innerHTML = orig; }, 1000);
+  });
+}
+
+function renderCard(player) {
   var steamId = player.steam_id || player.steamid || "";
   var name = player.db_name || player.name || player.nickname || steamId;
   var avatar = player.db_avatar || player.avatar_full || player.avatar || "";
   var server = player._server || {};
   var serverName = server.site_name || server.domain || server.name || "";
-  var mapName = server.live_data?.map || server.map || "";
+  var mapName = server.live_data && server.live_data.map || server.map || "";
   var ip = server.ip || "";
   var port = server.port || "";
   var team = player.team || "";
   var kills = player.db_kills != null ? player.db_kills : (player.kills != null ? player.kills : null);
   var deaths = player.db_deaths != null ? player.db_deaths : (player.deaths != null ? player.deaths : null);
   var playtime = player.db_playtime || player.playtime || null;
-  var faceitLevel = player.db_faceit_level || player.faceit_level;
+  var faceitLevel = player.db_faceit_level != null ? player.db_faceit_level : player.faceit_level;
   var faceitElo = player.db_faceit_elo || player.faceit_elo;
   var groupName = player.group_name || "";
   var groupDisplay = player.group_display_name || groupName;
   var fearCreatedAt = player.db_fear_created_at || player.created_at;
-  var ping = player.ping != null ? player.ping : (player.db_ping != null ? player.db_ping : null);
-  var fearRank = player.db_rank || player.rank || null;
+  var ping = player.ping != null ? player.ping : null;
   var connectUrl = ip && port ? "steam://connect/" + ip + ":" + port : null;
   var steamUrl = "https://steamcommunity.com/profiles/" + steamId;
   var fearUrl = "https://fearproject.ru/profile/" + steamId;
@@ -116,27 +135,17 @@ function renderCard(player, isOnline) {
   if (kills != null && deaths != null && deaths > 0) kd = (kills / deaths).toFixed(1);
   else if (kills != null) kd = kills + "/0";
 
-  var items = [];
-  if (serverName) items.push(esc(serverName));
-  if (mapName) items.push(esc(mapName));
-  var playtimeStr = fmtHours(playtime);
-  if (playtimeStr) items.push(playtimeStr + " \u043d\u0430 \u0441\u0430\u0439\u0442\u0435");
-  var ageStr = fmtAge(fearCreatedAt);
-  if (ageStr) items.push(ageStr);
-
-  var html = '<div class="admin-card' + (isOnline ? ' online' : '') + ' rounded-xl bg-white/[0.03] p-3 flex flex-col gap-2 fade-in">';
+  var html = '<div class="admin-card rounded-xl bg-white/[0.03] p-3 flex flex-col gap-2 fade-in">';
 
   html += '<div class="flex items-start gap-2.5">';
   html += '<div class="relative shrink-0">';
   html += '<img src="' + esc(avatar) + '" alt="" class="w-10 h-10 rounded-lg object-cover">';
-  if (isOnline) html += '<div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0a0a0c]"></div>';
   html += '</div>';
 
   html += '<div class="flex-1 min-w-0">';
   html += '<div class="flex items-center gap-1.5 flex-wrap">';
   html += '<span class="text-sm font-semibold text-white truncate max-w-[160px]">' + esc(name) + '</span>';
   if (groupName) html += roleTag(groupName, groupDisplay);
-  if (team && isOnline) html += teamTag(team);
   html += '</div>';
   html += '<div class="text-[11px] text-gray-500 font-mono mt-0.5">' + esc(steamId) + '</div>';
   html += '</div>';
@@ -146,9 +155,16 @@ function renderCard(player, isOnline) {
   }
   html += '</div>';
 
-  if (items.length > 0) {
+  var meta = [];
+  if (serverName) meta.push(esc(serverName));
+  if (mapName) meta.push(esc(mapName));
+  var playtimeStr = fmtHours(playtime);
+  if (playtimeStr) meta.push(playtimeStr + " \u043d\u0430 \u0441\u0430\u0439\u0442\u0435");
+  var ageStr = fmtAge(fearCreatedAt);
+  if (ageStr) meta.push(ageStr);
+  if (meta.length > 0) {
     html += '<div class="flex items-center gap-1.5 flex-wrap text-[11px] text-gray-500">';
-    items.forEach(function(item, i) {
+    meta.forEach(function(item, i) {
       if (i > 0) html += '<span class="text-gray-700">\u00b7</span>';
       html += '<span>' + item + '</span>';
     });
@@ -172,26 +188,51 @@ function renderCard(player, isOnline) {
     html += '<button onclick="copyToClipboard(\'' + esc(ip + ':' + port) + '\', this)" class="p-1 rounded hover:bg-white/10 transition-colors" title="IP:PORT"><i class="ph ph-link text-gray-500 hover:text-white text-xs"></i></button>';
   }
   html += '</div>';
-
   html += '</div>';
   html += '</div>';
-
   return html;
 }
 
-function copyToClipboard(text, el) {
-  navigator.clipboard.writeText(text).then(function() {
-    var orig = el.innerHTML;
-    el.innerHTML = '<i class="ph ph-check text-emerald-400 text-xs"></i>';
-    setTimeout(function() { el.innerHTML = orig; }, 1000);
-  });
+function renderOnlineRow(p) {
+  var steamId = p.steam_id || "";
+  var name = p.db_name || p.nickname || steamId;
+  var avatar = p.db_avatar || p.avatar || "";
+  var server = p._server || {};
+  var serverLabel = server.site_name || server.domain || "";
+  var mapName = server.live_data && server.live_data.map || server.map || "";
+  var team = p.team || "";
+  var playtime = p.db_playtime;
+  var faceitLevel = p.db_faceit_level;
+  var connectUrl = "steam://connect/" + server.ip + ":" + server.port;
+  var steamUrl = "https://steamcommunity.com/profiles/" + steamId;
+  var fearUrl = "https://fearproject.ru/profile/" + steamId;
+
+  var html = '<div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 online-card">';
+  html += '<img src="' + esc(avatar) + '" alt="" class="w-8 h-8 rounded-full shrink-0">';
+  html += '<div class="flex-1 min-w-0">';
+  html += '<div class="flex items-center gap-2">';
+  html += '<span class="text-sm text-emerald-300 font-medium truncate">' + esc(name) + '</span>';
+  html += teamTag(team);
+  html += '</div>';
+  html += '<div class="flex items-center gap-1.5 text-[11px] text-gray-500">';
+  if (serverLabel) html += '<span>' + esc(serverLabel) + '</span>';
+  if (mapName) html += '<span>\u00b7 ' + esc(mapName) + '</span>';
+  var playtimeStr = fmtHours(playtime);
+  if (playtimeStr) html += '<span>\u00b7 ' + playtimeStr + '</span>';
+  if (faceitLevel != null) html += '<span>\u00b7 Faceit LVL ' + faceitLevel + '</span>';
+  html += '</div></div>';
+  html += '<a href="' + connectUrl + '" class="shrink-0 px-2 py-1 rounded bg-[#5865F2]/20 hover:bg-[#5865F2]/40 text-[#5865F2] text-xs font-medium transition-colors flex items-center gap-1" title="\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f"><i class="ph ph-plugs"></i> Connect</a>';
+  html += '<a href="' + fearUrl + '" target="_blank" class="shrink-0 p-1 rounded hover:bg-white/10 transition-colors" title="Fear"><i class="ph ph-user text-gray-400 hover:text-white text-sm"></i></a>';
+  html += '<a href="' + steamUrl + '" target="_blank" class="shrink-0 p-1 rounded hover:bg-white/10 transition-colors" title="Steam"><i class="ph ph-steam-logo text-gray-400 hover:text-white text-sm"></i></a>';
+  html += '<button onclick="copyToClipboard(\'' + esc(steamId) + '\', this)" class="shrink-0 p-1 rounded hover:bg-white/10 transition-colors" title="SteamID"><i class="ph ph-copy text-gray-400 hover:text-white text-sm"></i></button>';
+  html += '</div>';
+  return html;
 }
 
 function clearAllCards() {
-  allGridEl.innerHTML = '';
+  allGridEl.innerHTML = '<div class="col-span-full text-center py-6 text-gray-500 text-xs">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</div>';
   currentPage = 0;
   totalRows = 0;
-  allGridEl.innerHTML = '<div class="col-span-full text-center py-6 text-gray-500 text-xs">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</div>';
 }
 
 async function loadPage(reset) {
@@ -214,7 +255,7 @@ async function loadPage(reset) {
     if (reset) allGridEl.innerHTML = '';
 
     var html = '';
-    rows.forEach(function(row) { html += renderCard(row, false); });
+    rows.forEach(function(row) { html += renderCard(row); });
     allGridEl.insertAdjacentHTML('beforeend', html);
 
     currentPage++;
@@ -227,7 +268,6 @@ async function loadPage(reset) {
   }
 }
 
-// Infinite scroll
 var observer = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     if (entry.isIntersecting && !loading) loadPage(false);
@@ -240,7 +280,6 @@ sentinel.className = "h-1";
 allGridEl.parentElement.appendChild(sentinel);
 observer.observe(sentinel);
 
-// Search
 if (searchInput) {
   searchInput.addEventListener("input", function() {
     clearTimeout(searchTimeout);
@@ -248,7 +287,6 @@ if (searchInput) {
   });
 }
 
-// Tabs
 document.querySelectorAll(".tab-btn").forEach(function(btn) {
   btn.addEventListener("click", function() {
     document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
@@ -263,9 +301,9 @@ document.querySelectorAll(".tab-btn").forEach(function(btn) {
   });
 });
 
-// Online admins
 async function loadOnlineAdmins() {
   try {
+    if (onlineStatusEl) onlineStatusEl.textContent = "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...";
     var res = await fetch("/api/servers");
     var data = await res.json();
     var servers = data.servers || [];
@@ -288,23 +326,20 @@ async function loadOnlineAdmins() {
     });
 
     if (onlineCountEl) onlineCountEl.textContent = "(" + unique.length + ")";
+    if (onlineStatusEl) onlineStatusEl.textContent = "";
 
     if (unique.length === 0) {
-      onlineGridEl.innerHTML = '<div class="col-span-full text-center py-8 text-gray-500 text-sm">\u041d\u0438\u043a\u043e\u0433\u043e \u043d\u0435\u0442 \u043e\u043d\u043b\u0430\u0439\u043d</div>';
+      onlineListEl.innerHTML = '<span class="text-gray-500 text-sm">\u041d\u0438\u043a\u043e\u0433\u043e \u043d\u0435\u0442 \u043e\u043d\u043b\u0430\u0439\u043d</span>';
       return;
     }
 
-    var html = '';
-    unique.forEach(function(p) { html += renderCard(p, true); });
-    onlineGridEl.innerHTML = html;
-
-    if (lastUpdateEl) lastUpdateEl.textContent = "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e: " + new Date().toLocaleTimeString("ru-RU");
+    var html = unique.map(function(p) { return renderOnlineRow(p); }).join("");
+    onlineListEl.innerHTML = html;
   } catch (error) {
-    onlineGridEl.innerHTML = '<div class="col-span-full text-center py-8 text-gray-500 text-sm">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c</div>';
+    onlineListEl.innerHTML = '<span class="text-gray-500 text-sm">\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c</span>';
   }
 }
 
-// Refresh
 if (refreshBtn) {
   refreshBtn.addEventListener("click", async function() {
     try {
@@ -323,7 +358,6 @@ if (refreshBtn) {
   });
 }
 
-// Logout
 var logoutBtn = document.getElementById("logoutBtn");
 if (logoutBtn) {
   logoutBtn.addEventListener("click", async function() {
