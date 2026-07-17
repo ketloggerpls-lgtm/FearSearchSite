@@ -112,7 +112,7 @@ async function authMiddleware(req, res, next) {
   next();
 }
 
-app.use(authMiddleware);
+// app.use(authMiddleware); -- disabled: site is public
 
 app.post("/api/auth/login", async (req, res) => {
   try {
