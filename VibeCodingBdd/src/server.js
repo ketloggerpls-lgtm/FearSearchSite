@@ -28,6 +28,60 @@ const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearA
 const logger = require("./logger");
 const { notifyAuthFailure, markAuthRecovered } = require("./notify");
 const { startStaffPunishmentsSync } = require("./punishmentsSync");
+
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_GUILD_ID = "1358108404182159451";
+const DISCORD_ROLE_IDS = {
+  GLADMIN:  process.env.DISCORD_ROLE_GLADMIN  || "1503512406301872198",
+  STADMIN:  process.env.DISCORD_ROLE_STADMIN  || "1503512384122257408",
+  STMODER:  process.env.DISCORD_ROLE_STMODER  || "1503512364404703392",
+  STAFF:    process.env.DISCORD_ROLE_STAFF    || "",
+  MODER:    process.env.DISCORD_ROLE_MODER    || "1503512343202758666",
+  MLMODER:  process.env.DISCORD_ROLE_MLMODER  || "1503512286223138900",
+};
+const DISCORD_ROLE_RANK = {
+  [DISCORD_ROLE_IDS.GLADMIN]: 10,
+  [DISCORD_ROLE_IDS.STADMIN]: 9,
+  [DISCORD_ROLE_IDS.STMODER]: 8,
+  [DISCORD_ROLE_IDS.MODER]:   6,
+  [DISCORD_ROLE_IDS.MLMODER]: 5,
+};
+const DISCORD_ROLE_LABELS = {
+  [DISCORD_ROLE_IDS.GLADMIN]: "Гл. Администратор",
+  [DISCORD_ROLE_IDS.STADMIN]: "Ст. Администратор",
+  [DISCORD_ROLE_IDS.STMODER]: "Ст. Модератор",
+  [DISCORD_ROLE_IDS.MODER]:   "Модератор",
+  [DISCORD_ROLE_IDS.MLMODER]: "Мл. Модератор",
+};
+const MIN_DISCORD_ROLE_RANK = 5;
+
+async function fetchDiscordMemberRoles(discordUserId) {
+  if (!DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN not configured");
+  const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${discordUserId}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+  });
+  if (resp.status === 404) return null;
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Discord API ${resp.status}: ${body}`);
+  }
+  const member = await resp.json();
+  return member.roles || [];
+}
+
+function resolveDiscordRole(roles) {
+  let bestRank = 0;
+  let bestRoleId = null;
+  for (const roleId of roles) {
+    const rank = DISCORD_ROLE_RANK[roleId];
+    if (rank && rank > bestRank) {
+      bestRank = rank;
+      bestRoleId = roleId;
+    }
+  }
+  return bestRoleId ? { rank: bestRank, label: DISCORD_ROLE_LABELS[bestRoleId] } : null;
+}
 const { handleCheckerApi } = require("./checker");
 
 const PORT = process.env.PORT || 3000;
@@ -145,12 +199,14 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const { username, password, discord_id } = req.body;
     if (!username || !password || !discord_id) return res.status(400).json({ error: "Логин, пароль и Discord ID обязательны" });
-    const admin = await findAdminByDiscordId(discord_id);
-    if (!admin) return res.status(403).json({ error: "Discord ID не найден среди администраторов проекта" });
-    const rank = getSiteRoleRank(admin.group_name);
-    if (rank < MIN_SITE_ROLE_RANK) return res.status(403).json({ error: "Недостаточно прав. Доступ только для младшего модератора и выше" });
-    const roleLabel = admin.group_display_name || admin.group_name || 'Стафф';
-    const user = await createSiteUser(username, password, admin.name, discord_id, roleLabel);
+    if (!/^\d{17,20}$/.test(discord_id)) return res.status(400).json({ error: "Некорректный Discord ID" });
+    const memberRoles = await fetchDiscordMemberRoles(discord_id);
+    if (!memberRoles) return res.status(403).json({ error: "Пользователь не найден в сервере Discord" });
+    const resolved = resolveDiscordRole(memberRoles);
+    if (!resolved || resolved.rank < MIN_DISCORD_ROLE_RANK) {
+      return res.status(403).json({ error: "Недостаточно прав. Доступ только для мл. модератора и выше" });
+    }
+    const user = await createSiteUser(username, password, null, discord_id, resolved.label);
     res.json({ ok: true, user });
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Логин уже занят" });
