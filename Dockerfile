@@ -7,7 +7,7 @@ RUN npm install --omit=dev
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc libffi-dev postgresql-client \
+    libpq-dev gcc libffi-dev postgresql-client curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=nodebuilder /usr/local/bin/node /usr/local/bin/node
@@ -21,7 +21,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py db.py gdrive_backup.py discord_backup.py ./
-COPY --from=nodebuilder /site/node_modules ./VibeCodingBdd/node_modules
 COPY VibeCodingBdd/ ./VibeCodingBdd/
 
 COPY entrypoint.sh /entrypoint.sh
