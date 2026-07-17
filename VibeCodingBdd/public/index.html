@@ -21,10 +21,10 @@
         .tab-btn:hover { color: #fff; }
         .admin-card { transition: all 0.25s; border: 1px solid rgba(255,255,255,0.06); }
         .admin-card:hover { border-color: rgba(88,101,242,0.3); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .admin-card.online { border-color: rgba(16,185,129,0.2); }
+        .admin-card.online:hover { border-color: rgba(16,185,129,0.4); box-shadow: 0 8px 24px rgba(16,185,129,0.08); }
         .connect-btn { background: rgba(88,101,242,0.15); color: #818cf8; transition: all 0.2s; }
         .connect-btn:hover { background: rgba(88,101,242,0.3); color: #a5b4fc; }
-        .online-card { transition: all 0.2s; }
-        .online-card:hover { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); }
         .faceit-lvl-10 { color: #f97316; }
         .faceit-lvl-7 { color: #a78bfa; }
         .faceit-lvl-4 { color: #60a5fa; }
@@ -42,7 +42,6 @@
     </div>
 
     <div class="relative z-10 max-w-[1400px] mx-auto px-4 py-5">
-        <!-- Header -->
         <div class="flex items-center justify-between mb-5">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-lg bg-[#5865F2]/20 flex items-center justify-center">
@@ -51,65 +50,72 @@
                 <h1 class="text-lg font-bold">Fear Staff Sync</h1>
             </div>
             <div class="flex items-center gap-2">
-                <a href="/staff-stats" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-chart-bar"></i> Статистика
-                </a>
-                <a href="/checker/" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-shield-check"></i> Checker
-                </a>
-                <a href="/vdf.html" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-files"></i> VDF
-                </a>
-                <button id="refreshBtn" class="px-3 py-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-arrows-clockwise"></i> Обновить
-                </button>
-                <button id="logoutBtn" class="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs text-gray-400 hover:text-white transition-colors">
-                    <i class="ph ph-sign-out"></i>
-                </button>
+                <a href="/staff-stats" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5"><i class="ph ph-chart-bar"></i> \u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430</a>
+                <a href="/checker/" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5"><i class="ph ph-shield-check"></i> Checker</a>
+                <a href="/vdf.html" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5"><i class="ph ph-files"></i> VDF</a>
+                <button id="refreshBtn" class="px-3 py-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors flex items-center gap-1.5"><i class="ph ph-arrows-clockwise"></i> \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c</button>
+                <button id="logoutBtn" class="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs text-gray-400 hover:text-white transition-colors"><i class="ph ph-sign-out"></i></button>
             </div>
         </div>
 
-        <!-- Tabs -->
         <div class="flex items-center gap-5 border-b border-white/8 mb-4">
             <button class="tab-btn active py-2.5 text-sm font-semibold flex items-center gap-2" data-tab="online">
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Online
                 <span id="onlineCount" class="text-gray-500 font-normal text-xs"></span>
             </button>
             <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2" data-tab="all">
-                <i class="ph ph-users"></i> Все админы
+                <i class="ph ph-users"></i> \u0412\u0441\u0435 \u0430\u0434\u043c\u0438\u043d\u044b
                 <span id="allCount" class="text-gray-500 font-normal text-xs"></span>
             </button>
         </div>
 
-        <!-- Tab: Online — compact list -->
+        <!-- Tab: Online — cards -->
         <div id="tab-online" class="tab-content active">
-            <div class="glass-panel rounded-xl p-3">
-                <div class="flex items-center justify-between mb-2">
-                    <span id="onlineStatus" class="text-xs text-gray-500"></span>
-                </div>
-                <div id="onlineList" class="flex flex-col gap-1.5">
-                    <span class="text-gray-500 text-sm">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</span>
-                </div>
+            <div id="onlineGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div class="col-span-full text-center py-8 text-gray-500 text-sm">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</div>
             </div>
         </div>
 
-        <!-- Tab: All — card grid -->
+        <!-- Tab: All — table -->
         <div id="tab-all" class="tab-content">
-            <div class="glass-panel rounded-xl px-4 py-2.5 mb-4 flex items-center gap-3">
-                <i class="ph ph-magnifying-glass text-gray-500 text-sm"></i>
-                <input type="text" id="searchInput" placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u0438\u043c\u0435\u043d\u0438, SteamID, Discord..."
-                    class="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-500 rounded-lg px-2 py-1">
-                <span id="status" class="text-xs text-gray-500 whitespace-nowrap"></span>
+            <div class="glass-panel rounded-xl p-3 mb-4">
+                <div class="flex items-center gap-3">
+                    <i class="ph ph-magnifying-glass text-gray-500"></i>
+                    <input type="text" id="searchInput" placeholder="\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u0438\u043c\u0435\u043d\u0438, SteamID, Discord..."
+                        class="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-500">
+                    <span id="status" class="text-sm text-gray-500 whitespace-nowrap"></span>
+                </div>
             </div>
-            <div id="allGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                <div class="col-span-full text-center py-8 text-gray-500 text-sm">\u041d\u0430\u0436\u043c\u0438\u0442\u0435 "\u0412\u0441\u0435 \u0430\u0434\u043c\u0438\u043d\u044b" \u0434\u043b\u044f \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438</div>
+
+            <div class="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.03]">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-white/5 text-gray-400 sticky top-0">
+                        <tr>
+                            <th class="px-3 py-3"></th>
+                            <th class="px-3 py-3 font-semibold">\u0418\u043c\u044f</th>
+                            <th class="px-3 py-3 font-semibold">SteamID</th>
+                            <th class="px-3 py-3 font-semibold">\u0413\u0440\u0443\u043f\u043f\u0430</th>
+                            <th class="px-3 py-3 font-semibold">\u0421\u0442\u0430\u0442\u0443\u0441</th>
+                            <th class="px-3 py-3 font-semibold">Discord</th>
+                            <th class="px-3 py-3 font-semibold">#</th>
+                            <th class="px-3 py-3 font-semibold">K/D</th>
+                            <th class="px-3 py-3 font-semibold">\u0427\u0430\u0441\u044b</th>
+                            <th class="px-3 py-3 font-semibold">Faceit</th>
+                            <th class="px-3 py-3 font-semibold">\u0411\u0430\u043d</th>
+                            <th class="px-3 py-3 font-semibold">\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e</th>
+                            <th class="px-3 py-3 font-semibold">\u0421\u0441\u044b\u043b\u043a\u0438</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
             </div>
+
             <div class="mt-3 text-center">
                 <span id="pagination" class="text-xs text-gray-500"></span>
             </div>
         </div>
     </div>
 
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=5"></script>
 </body>
 </html>
