@@ -1,7 +1,7 @@
 FROM node:20-slim AS nodebuilder
 
 WORKDIR /site
-COPY VibeCodingBdd/package.json VibeCodingBdd/package-lock.json ./
+COPY VibeCodingBdd/package.json VibeCodingBdd/package-lock.json* ./
 RUN npm install --omit=dev
 
 FROM python:3.12-slim
@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py db.py gdrive_backup.py discord_backup.py ./
 COPY VibeCodingBdd/ ./VibeCodingBdd/
+COPY --from=nodebuilder /site/node_modules ./VibeCodingBdd/node_modules/
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
