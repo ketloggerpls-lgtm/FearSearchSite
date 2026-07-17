@@ -252,21 +252,19 @@ app.get("/api/staff-stats", async (req, res) => {
     const stats = await getStaffStatsForPeriod(dateFrom, dateTo);
 
     const ROLE_ORDER = {
-      "Владелец": 1,
-      "Куратор": 2,
-      "Разработчик": 3,
-      "Гл. Администратор": 4,
-      "Ст. Администратор": 5,
-      "Спец. Администратор": 6,
-      "Ст. Модератор": 7,
-      "Модератор": 8,
-      "Мл. Модератор": 9,
-      "Модератор Discord": 9,
-      "Модератор месяца": 9,
-      "Администратор": 10,
-      "Администратор +": 10,
-      "Стафф": 11,
+      "Владелец": 1, "OWNER": 1,
+      "Куратор": 2, "CURATOR": 2,
+      "Разработчик": 3, "DEVELOPER": 3,
+      "Гл. Администратор": 4, "GLADMIN": 4,
+      "Ст. Администратор": 5, "STADMIN": 5, "Ст. Админ": 5,
+      "Спец. Администратор": 6, "SPECIAL": 6,
+      "Ст. Модератор": 7, "STMODER": 7,
+      "Модератор": 8, "MODER": 8,
+      "Мл. Модератор": 9, "MLMODER": 9,
+      "Модератор Discord": 10, "Модератор месяца": 10,
+      "Стафф": 11, "STAFF": 11,
     };
+    const EXCLUDED_ROLE_KEYS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED"]);
     const EXCLUDED_STEAMIDS = new Set(["76561199077199811"]);
 
     const staffMap = {};
@@ -274,6 +272,7 @@ app.get("/api/staff-stats", async (req, res) => {
       const sid = row.admin_steamid;
       const roleKey = row.role_key || "STAFF";
       if (EXCLUDED_STEAMIDS.has(sid)) continue;
+      if (EXCLUDED_ROLE_KEYS.has(roleKey)) continue;
       if (!staffMap[sid]) {
         staffMap[sid] = {
           steamid: sid,
