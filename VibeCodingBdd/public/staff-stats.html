@@ -23,6 +23,8 @@
         .period-btn.active { background: rgba(88, 101, 242, 0.2); color: #818cf8; border-color: rgba(88, 101, 242, 0.4); }
         .period-btn:not(.active) { color: #9ca3af; }
         .period-btn:hover:not(.active) { color: #e5e7eb; background: rgba(255,255,255,0.05); }
+        .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     </style>
 </head>
 <body class="text-white min-h-screen w-full relative overflow-x-hidden">
@@ -72,7 +74,14 @@
             </div>
         </div>
 
-        <div id="loading" class="text-center text-gray-500 py-12">Загрузка...</div>
+        <div id="loading" class="space-y-2 hidden">
+            <div class="skeleton h-[44px]"></div>
+            <div class="skeleton h-[44px]"></div>
+            <div class="skeleton h-[44px]"></div>
+            <div class="skeleton h-[44px]"></div>
+            <div class="skeleton h-[44px]"></div>
+            <div class="skeleton h-[44px]"></div>
+        </div>
         <div id="content" class="hidden space-y-6"></div>
         <div id="logsView" class="hidden">
             <div class="mb-3 flex items-center gap-2">
