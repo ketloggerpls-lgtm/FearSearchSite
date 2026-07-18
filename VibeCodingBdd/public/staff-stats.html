@@ -66,11 +66,26 @@
                 <button id="viewTop" class="view-btn px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 border border-transparent">
                     <i class="ph ph-trophy mr-1"></i>Топ
                 </button>
+                <button id="viewLogs" class="view-btn px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 border border-transparent">
+                    <i class="ph ph-scroll mr-1"></i>Логи
+                </button>
             </div>
         </div>
 
         <div id="loading" class="text-center text-gray-500 py-12">Загрузка...</div>
         <div id="content" class="hidden space-y-6"></div>
+        <div id="logsView" class="hidden">
+            <div class="mb-3 flex items-center gap-2">
+                <div class="relative flex-1 max-w-xs">
+                    <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                    <input id="logsSearch" type="text" placeholder="Поиск по админу, игроку, причине..." class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5865F2]/50">
+                </div>
+                <button id="logsSearchBtn" class="px-3 py-2 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors">Найти</button>
+                <span id="logsCount" class="text-gray-600 text-xs"></span>
+            </div>
+            <div id="logsContent" class="space-y-0.5"></div>
+            <div id="logsPaging" class="flex items-center justify-center gap-2 mt-4"></div>
+        </div>
         <div id="empty" class="hidden text-center text-gray-500 py-12">Нет данных за этот период</div>
     </div>
     <script>
@@ -198,13 +213,14 @@
         function render() {
             if (!cachedData) return;
             if (currentView === "grouped") renderGrouped(cachedData);
-            else renderTop(cachedData);
+            else if (currentView === "top") renderTop(cachedData);
         }
 
         function loadStats() {
             document.getElementById("loading").classList.remove("hidden");
             document.getElementById("empty").classList.add("hidden");
             document.getElementById("content").classList.add("hidden");
+            document.getElementById("logsView").classList.add("hidden");
             var params = getPeriodParams(currentPeriod);
             var url = "/api/staff-stats?from=" + encodeURIComponent(params.from) + "&to=" + encodeURIComponent(params.to);
             document.getElementById("periodLabel").textContent = formatPeriodLabel(currentPeriod);
@@ -222,6 +238,116 @@
             });
         }
 
+        /* === LOGS === */
+        var logsPage = 0;
+        var logsPageSize = 50;
+        var logsSearchQuery = "";
+
+        function fmtStatus(s) {
+            if (s === 1) return '<span class="text-emerald-400">Активен</span>';
+            if (s === 2) return '<span class="text-gray-500">Снят</span>';
+            if (s === 4) return '<span class="text-yellow-400">Истёк</span>';
+            return '<span class="text-gray-600">' + s + '</span>';
+        }
+        function fmtType(t) {
+            if (t === 1) return '<span class="text-amber-400"><i class="ph ph-hammer"></i> Бан</span>';
+            if (t === 2) return '<span class="text-purple-400"><i class="ph ph-megaphone"></i> Мут</span>';
+            return '<span class="text-gray-500">Тип ' + t + '</span>';
+        }
+        function fmtDur(sec) {
+            if (!sec || sec <= 0) return "Навсегда";
+            var d = Math.floor(sec / 86400);
+            var h = Math.floor((sec % 86400) / 3600);
+            if (d > 0) return d + "д " + h + "ч";
+            var m = Math.floor((sec % 3600) / 60);
+            if (h > 0) return h + "ч " + m + "м";
+            return m + "м";
+        }
+        function fmtTs(ts) {
+            if (!ts) return "—";
+            var d = new Date(ts * 1000);
+            return d.toLocaleDateString("ru-RU") + " " + d.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"});
+        }
+
+        function renderLogRow(r) {
+            var typeIcon = fmtType(r.type);
+            var statusStr = fmtStatus(r.status);
+            var fearUrl = "https://fearproject.ru/profile/" + r.steamid;
+            return '<div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs">'
+                + '<span class="shrink-0 w-[130px] text-gray-500 font-mono">' + fmtTs(r.created) + '</span>'
+                + '<span class="shrink-0 w-[60px]">' + typeIcon + '</span>'
+                + '<div class="flex-1 min-w-0 truncate">'
+                + '<span class="text-[#5865F2] font-medium cursor-pointer hover:underline" onclick="copyToClipboard(\'' + esc(r.admin_steamid) + '\', this)">' + esc(r.admin) + '</span>'
+                + ' <i class="ph ph-arrow-right text-gray-600"></i> '
+                + '<a href="' + fearUrl + '" target="_blank" class="text-white hover:text-[#5865F2] transition-colors">' + esc(r.name || r.steamid) + '</a>'
+                + '<span class="text-gray-600 font-mono ml-1">(' + esc(r.steamid) + ')</span>'
+                + '</div>'
+                + '<span class="shrink-0 w-[100px] text-gray-400 truncate" title="' + esc(r.reason) + '">' + esc(r.reason || '—') + '</span>'
+                + '<span class="shrink-0 w-[80px] text-gray-500">' + fmtDur(r.duration) + '</span>'
+                + '<span class="shrink-0 w-[70px] text-right">' + statusStr + '</span>'
+                + '</div>';
+        }
+
+        function loadLogs(page) {
+            logsPage = page || 0;
+            document.getElementById("loading").classList.remove("hidden");
+            document.getElementById("empty").classList.add("hidden");
+            document.getElementById("content").classList.add("hidden");
+            document.getElementById("logsView").classList.remove("hidden");
+            var offset = logsPage * logsPageSize;
+            var url = "/api/punishments/logs?limit=" + logsPageSize + "&offset=" + offset;
+            if (logsSearchQuery) url += "&search=" + encodeURIComponent(logsSearchQuery);
+            fetch(url).then(function(r){return r.json()}).then(function(data) {
+                document.getElementById("loading").classList.add("hidden");
+                var lc = document.getElementById("logsContent");
+                lc.innerHTML = "";
+                if (!data.rows || data.rows.length === 0) {
+                    lc.innerHTML = '<div class="text-center text-gray-500 py-8">Нет записей</div>';
+                    document.getElementById("logsCount").textContent = "";
+                    document.getElementById("logsPaging").innerHTML = "";
+                    return;
+                }
+                document.getElementById("logsCount").textContent = "Найдено: " + data.total;
+                data.rows.forEach(function(r) { lc.innerHTML += renderLogRow(r); });
+                var totalPages = Math.ceil(data.total / logsPageSize);
+                var paging = document.getElementById("logsPaging");
+                paging.innerHTML = "";
+                if (totalPages <= 1) return;
+                if (logsPage > 0) {
+                    var prevBtn = document.createElement("button");
+                    prevBtn.textContent = "← Назад";
+                    prevBtn.className = "px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-400 transition-colors";
+                    prevBtn.onclick = function() { loadLogs(logsPage - 1); };
+                    paging.appendChild(prevBtn);
+                }
+                var info = document.createElement("span");
+                info.className = "text-gray-600 text-xs";
+                info.textContent = (logsPage + 1) + " / " + totalPages;
+                paging.appendChild(info);
+                if (logsPage < totalPages - 1) {
+                    var nextBtn = document.createElement("button");
+                    nextBtn.textContent = "Далее →";
+                    nextBtn.className = "px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-400 transition-colors";
+                    nextBtn.onclick = function() { loadLogs(logsPage + 1); };
+                    paging.appendChild(nextBtn);
+                }
+            }).catch(function(err) {
+                document.getElementById("loading").classList.add("hidden");
+                document.getElementById("logsContent").innerHTML = '<div class="text-center text-red-400 py-8">Ошибка: ' + esc(err.message) + '</div>';
+            });
+        }
+
+        document.getElementById("logsSearchBtn").addEventListener("click", function() {
+            logsSearchQuery = document.getElementById("logsSearch").value.trim();
+            loadLogs(0);
+        });
+        document.getElementById("logsSearch").addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                logsSearchQuery = this.value.trim();
+                loadLogs(0);
+            }
+        });
+
         document.querySelectorAll(".period-btn").forEach(function(btn) {
             btn.addEventListener("click", function() {
                 document.querySelectorAll(".period-btn").forEach(function(b) { b.classList.remove("active"); });
@@ -233,13 +359,34 @@
 
         document.getElementById("viewGrouped").addEventListener("click", function() {
             currentView = "grouped"; this.classList.add("active");
-            document.getElementById("viewTop").classList.remove("active"); render();
+            document.getElementById("viewTop").classList.remove("active");
+            document.getElementById("viewLogs").classList.remove("active");
+            document.getElementById("logsView").classList.add("hidden");
+            document.getElementById("loading").classList.add("hidden");
+            document.getElementById("empty").classList.add("hidden");
+            render();
         });
         document.getElementById("viewTop").addEventListener("click", function() {
             currentView = "top"; this.classList.add("active");
-            document.getElementById("viewGrouped").classList.remove("active"); render();
+            document.getElementById("viewGrouped").classList.remove("active");
+            document.getElementById("viewLogs").classList.remove("active");
+            document.getElementById("logsView").classList.add("hidden");
+            document.getElementById("loading").classList.add("hidden");
+            document.getElementById("empty").classList.add("hidden");
+            render();
         });
-        document.getElementById("refreshBtn").addEventListener("click", loadStats);
+        document.getElementById("viewLogs").addEventListener("click", function() {
+            currentView = "logs"; this.classList.add("active");
+            document.getElementById("viewGrouped").classList.remove("active");
+            document.getElementById("viewTop").classList.remove("active");
+            document.getElementById("content").classList.add("hidden");
+            document.getElementById("empty").classList.add("hidden");
+            loadLogs(0);
+        });
+        document.getElementById("refreshBtn").addEventListener("click", function() {
+            if (currentView === "logs") loadLogs(logsPage);
+            else loadStats();
+        });
         loadStats();
     </script>
 </body>

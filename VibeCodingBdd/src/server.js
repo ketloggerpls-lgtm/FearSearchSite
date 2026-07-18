@@ -15,6 +15,8 @@ const {
   getStaffPunishmentStats,
   getVdfHistory,
   getVdfHistoryCount,
+  getPunishmentLogs,
+  getPunishmentLogsCount,
   loginSiteUser,
   getSiteSession,
   deleteSiteSession,
@@ -545,6 +547,22 @@ app.get("/api/punishments/staff/:steamid", async (req, res) => {
     res.json(rows);
   } catch (error) {
     logger.error("Failed to get staff punishments", { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/punishments/logs", async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const search = String(req.query.search || '').trim();
+    const [rows, total] = await Promise.all([
+      getPunishmentLogs(limit, offset, search),
+      getPunishmentLogsCount(search),
+    ]);
+    res.json({ rows, total, limit, offset });
+  } catch (error) {
+    logger.error("Failed to get punishment logs", { error: error.message });
     res.status(500).json({ error: error.message });
   }
 });

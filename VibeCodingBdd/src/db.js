@@ -590,6 +590,45 @@ async function getStaffPunishmentStats(adminSteamids) {
   return stats;
 }
 
+async function getPunishmentLogs(limit = 500, offset = 0, search = '') {
+  const params = [];
+  let where = 'WHERE admin_steamid IS NOT NULL AND admin_steamid != \'\'';
+  if (search) {
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    where += ` AND (admin ILIKE $1 OR steamid ILIKE $2 OR name ILIKE $3 OR reason ILIKE $4)`;
+  }
+  params.push(limit, offset);
+  const result = await pool.query(
+    `SELECT id, type, steamid, name, admin, admin_steamid, reason, status, duration, created, expires
+     FROM punishments
+     ${where}
+     ORDER BY created DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return result.rows;
+}
+
+async function getPunishmentLogsCount(search = '') {
+  let where = 'WHERE admin_steamid IS NOT NULL AND admin_steamid != \'\'';
+  const params = [];
+  if (search) {
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    where += ` AND (admin ILIKE $1 OR steamid ILIKE $2 OR name ILIKE $3 OR reason ILIKE $4)`;
+  }
+  const result = await pool.query(
+    `SELECT COUNT(*)::int as count FROM punishments ${where}`,
+    params
+  );
+  return result.rows[0]?.count || 0;
+}
+
 async function getVdfHistory(limit = 100, offset = 0, search = '') {
   let query = `
     SELECT id, check_id, source, steamid, nickname,
@@ -814,5 +853,7 @@ module.exports = {
   findAdminByDiscordId,
   getSiteRoleRank,
   STAFF_ROLE_RANK,
-  MIN_SITE_ROLE_RANK
+  MIN_SITE_ROLE_RANK,
+  getPunishmentLogs,
+  getPunishmentLogsCount
 };
