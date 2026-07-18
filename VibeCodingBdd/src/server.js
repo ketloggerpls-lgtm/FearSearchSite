@@ -27,7 +27,7 @@ const {
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const logger = require("./logger");
 const { notifyAuthFailure, markAuthRecovered } = require("./notify");
-const { startStaffPunishmentsSync } = require("./punishmentsSync");
+const { startStaffPunishmentsSync, syncAllStaffPunishments } = require("./punishmentsSync");
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_GUILD_ID = "1358108404182159451";
@@ -515,6 +515,13 @@ app.post("/api/refresh", async (_req, res) => {
     logger.error("Background refresh crashed", { error: error.message });
   });
   res.status(202).json({ ok: true, message: "Refresh started" });
+});
+
+app.post("/api/punishments-sync", async (_req, res) => {
+  syncAllStaffPunishments().catch((error) => {
+    logger.error("Background punishments sync crashed", { error: error.message });
+  });
+  res.status(202).json({ ok: true, message: "Punishments sync started" });
 });
 
 app.get("/api/punishments/staff/stats", async (_req, res) => {
