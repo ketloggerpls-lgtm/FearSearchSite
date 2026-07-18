@@ -20,6 +20,8 @@
         .tab-btn { transition: all 0.2s; border-bottom: 2px solid transparent; }
         .tab-btn.active { color: #5865F2; border-bottom-color: #5865F2; }
         .tab-btn:hover { color: #fff; }
+        .sidebar-nav-btn.active { background: rgba(88,101,242,0.15); color: #fff; }
+        .sidebar-nav-btn.active div { background: rgba(88,101,242,0.25); }
         .admin-card { transition: all 0.25s; border: 1px solid rgba(255,255,255,0.06); }
         .admin-card:hover { border-color: rgba(88,101,242,0.3); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
         .admin-card.online { border-color: rgba(16,185,129,0.2); }
@@ -41,7 +43,6 @@
         .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         .scroll-panel { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0; }
-        .header-fixed { flex-shrink: 0; }
         .stat-card { background: rgba(22, 22, 26, 0.8); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px 16px; }
     </style>
 </head>
@@ -51,236 +52,281 @@
         <div class="absolute -top-[300px] left-[10%] w-[500px] h-[500px] bg-[#5865F2] rounded-full blur-[150px] opacity-[0.05]"></div>
     </div>
 
-        <div class="relative z-10 h-full flex flex-col max-w-[1800px] mx-auto px-4 pt-4 pb-2">
-        <!-- Top bar: info left + title center + profile right -->
-        <div class="header-fixed flex items-center justify-between mb-3 shrink-0" style="min-height:52px">
-            <!-- Left: Stats info -->
-            <div class="flex items-center gap-3 shrink-0" style="min-width:320px">
-                <div class="glass-panel rounded-xl p-3 flex items-center gap-4">
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                            <i class="ph ph-users-three text-emerald-400 text-sm"></i>
-                        </div>
-                        <div>
-                            <div id="statAdmins" class="text-base font-bold text-emerald-400 leading-none">—</div>
-                            <div class="text-[10px] text-gray-500 leading-none mt-1">Админов</div>
-                        </div>
+    <div class="relative z-10 h-full flex" style="max-width:1800px;margin:0 auto;padding:12px 12px 8px 12px;gap:12px">
+
+        <!-- ====== LEFT SIDEBAR ====== -->
+        <aside class="flex flex-col gap-3 shrink-0" style="width:220px">
+            <!-- Stats card -->
+            <div class="glass-panel rounded-2xl p-4">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-[#5865F2]/20 flex items-center justify-center shrink-0">
+                        <i class="ph ph-shield-check text-[#5865F2] text-lg"></i>
                     </div>
-                    <div class="w-px h-8 bg-white/8"></div>
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                            <i class="ph ph-game-controller text-blue-400 text-sm"></i>
-                        </div>
-                        <div>
-                            <div id="statPlayers" class="text-base font-bold text-blue-400 leading-none">—</div>
-                            <div class="text-[10px] text-gray-500 leading-none mt-1">Игроков</div>
-                        </div>
+                    <div>
+                        <div class="text-sm font-bold text-white leading-tight">Fear Staff</div>
+                        <div class="text-[10px] text-gray-500 leading-tight mt-0.5">Sync Dashboard</div>
                     </div>
-                    <div class="w-px h-8 bg-white/8"></div>
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                            <i class="ph ph-flag text-red-400 text-sm"></i>
+                </div>
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+                            <span class="text-xs text-gray-400">Админов</span>
                         </div>
-                        <div>
-                            <div id="statReports" class="text-base font-bold text-red-400 leading-none">—</div>
-                            <div class="text-[10px] text-gray-500 leading-none mt-1">Репортов</div>
+                        <span id="statAdmins" class="text-sm font-bold text-emerald-400">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                            <span class="text-xs text-gray-400">Игроков</span>
                         </div>
+                        <span id="statPlayers" class="text-sm font-bold text-blue-400">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-red-400"></div>
+                            <span class="text-xs text-gray-400">Репорты</span>
+                        </div>
+                        <span id="statReports" class="text-sm font-bold text-red-400">—</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Center: Title + nav -->
-            <div class="flex items-center gap-4 shrink-0">
-                <div class="flex items-center gap-2">
-                    <div class="w-8 h-8 rounded-lg bg-[#5865F2]/20 flex items-center justify-center">
-                        <i class="ph ph-shield-check text-[#5865F2]"></i>
+            <!-- Navigation -->
+            <nav class="glass-panel rounded-2xl p-2 flex flex-col gap-1">
+                <button class="sidebar-nav-btn active flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all" data-tab="online">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     </div>
-                    <span class="text-base font-bold">Fear Staff Sync</span>
-                </div>
-                <a href="/checker/" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-shield-check"></i> Checker
+                    <span>Online</span>
+                    <span id="onlineCount" class="ml-auto text-[10px] text-gray-500 font-normal"></span>
+                </button>
+                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="all">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-users text-sm"></i>
+                    </div>
+                    <span>Все админы</span>
+                    <span id="allCount" class="ml-auto text-[10px] text-gray-600 font-normal"></span>
+                </button>
+                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="stats">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-chart-bar text-sm"></i>
+                    </div>
+                    <span>Статистика</span>
+                </button>
+                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="logs">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-scroll text-sm"></i>
+                    </div>
+                    <span>Логи</span>
+                </button>
+                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="mystats">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-user-circle text-sm"></i>
+                    </div>
+                    <span>Мои наказания</span>
+                </button>
+                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all tab-owner-only" data-tab="adminpanel" style="display:none">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-wrench text-sm"></i>
+                    </div>
+                    <span>Админка</span>
+                </button>
+            </nav>
+
+            <!-- External links -->
+            <div class="glass-panel rounded-2xl p-2 flex flex-col gap-1">
+                <a href="/checker/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-shield-check text-sm"></i>
+                    </div>
+                    <span>Checker</span>
                 </a>
-                <a href="/vdf" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/8 text-xs font-medium transition-colors flex items-center gap-1.5">
-                    <i class="ph ph-files"></i> VDF
+                <a href="/vdf" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                        <i class="ph ph-files text-sm"></i>
+                    </div>
+                    <span>VDF</span>
                 </a>
+            </div>
+        </aside>
+
+        <!-- ====== CENTER CONTENT ====== -->
+        <main class="flex-1 flex flex-col min-w-0 min-h-0">
+            <!-- Top bar: title + refresh -->
+            <div class="flex items-center justify-between mb-3 shrink-0">
+                <h1 id="contentTitle" class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="ph ph-users-three text-[#5865F2]"></i> Online
+                    <span id="contentCount" class="text-sm text-gray-500 font-normal"></span>
+                </h1>
                 <button id="refreshBtn" class="px-3 py-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors flex items-center gap-1.5">
                     <i class="ph ph-arrows-clockwise"></i> Обновить
                 </button>
             </div>
 
-            <!-- Right: Profile -->
-            <div class="glass-panel rounded-xl p-3 flex items-center gap-3 shrink-0" style="min-width:200px">
-                <div class="relative shrink-0">
-                    <img id="profileAvatar" src="" alt="" class="w-10 h-10 rounded-full object-cover hidden">
-                    <div id="profilePlaceholder" class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hidden">
-                        <i class="ph ph-user text-gray-500"></i>
+            <!-- Tab: Online — cards -->
+            <div id="tab-online" class="tab-content active">
+                <div class="scroll-panel">
+                    <div id="onlineGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        <div class="col-span-full grid grid-cols-4 gap-3">
+                            <div class="skeleton h-[140px]"></div>
+                            <div class="skeleton h-[140px]"></div>
+                            <div class="skeleton h-[140px]"></div>
+                            <div class="skeleton h-[140px]"></div>
+                        </div>
                     </div>
-                    <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#16161a]"></div>
                 </div>
-                <div class="flex-1 min-w-0">
-                    <div id="profileName" class="text-sm font-semibold leading-tight truncate"></div>
-                    <div id="profileRole" class="text-[11px] text-gray-400 leading-tight mt-0.5"></div>
+            </div>
+
+            <!-- Tab: All — table -->
+            <div id="tab-all" class="tab-content">
+                <div class="glass-panel rounded-xl p-3 mb-3 shrink-0">
+                    <div class="flex items-center gap-3">
+                        <i class="ph ph-magnifying-glass text-gray-500"></i>
+                        <input type="text" id="searchInput" placeholder="Поиск по имени, SteamID, Discord..."
+                            class="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-500">
+                        <span id="status" class="text-sm text-gray-500 whitespace-nowrap"></span>
+                    </div>
                 </div>
-                <button id="logoutBtn" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-red-500/10 border border-white/8 hover:border-red-500/30 text-[11px] text-gray-500 hover:text-red-400 transition-all font-medium" title="Выйти">
+                <div class="scroll-panel rounded-xl border border-white/10 bg-white/[0.03]">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-white/5 text-gray-400 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-3 py-3"></th>
+                                <th class="px-3 py-3 font-semibold">Имя</th>
+                                <th class="px-3 py-3 font-semibold">SteamID</th>
+                                <th class="px-3 py-3 font-semibold">Группа</th>
+                                <th class="px-3 py-3 font-semibold">Статус</th>
+                                <th class="px-3 py-3 font-semibold">Discord</th>
+                                <th class="px-3 py-3 font-semibold">#</th>
+                                <th class="px-3 py-3 font-semibold">K/D</th>
+                                <th class="px-3 py-3 font-semibold">Часы</th>
+                                <th class="px-3 py-3 font-semibold">Faceit</th>
+                                <th class="px-3 py-3 font-semibold">Бан</th>
+                                <th class="px-3 py-3 font-semibold">Обновлено</th>
+                                <th class="px-3 py-3 font-semibold">Ссылки</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rows"></tbody>
+                    </table>
+                </div>
+                <div class="mt-2 text-center shrink-0">
+                    <span id="pagination" class="text-xs text-gray-500"></span>
+                </div>
+            </div>
+
+            <!-- Tab: Stats -->
+            <div id="tab-stats" class="tab-content">
+                <div id="statsToolbar" class="stats-toolbar mb-3 shrink-0">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <p id="periodLabel" class="text-gray-500 text-xs"></p>
+                            <p id="totalText" class="text-gray-600 text-xs mt-0.5"></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 mb-3 flex-wrap">
+                        <button class="period-btn active px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-month">Этот месяц</button>
+                        <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-month">Прошлый месяц</button>
+                        <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">Эта неделя (Пн–Вс)</button>
+                        <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-week">Прошлая неделя</button>
+                        <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="all">Все время</button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10">
+                            <button id="viewGrouped" class="view-btn active px-3 py-1.5 rounded-md text-xs font-medium border border-transparent">
+                                <i class="ph ph-users mr-1"></i>По ролям
+                            </button>
+                            <button id="viewTop" class="view-btn px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 border border-transparent">
+                                <i class="ph ph-trophy mr-1"></i>Топ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="scroll-panel">
+                    <div id="statsLoading" class="space-y-3">
+                        <div class="skeleton h-[60px]"></div>
+                        <div class="skeleton h-[60px]"></div>
+                        <div class="skeleton h-[60px]"></div>
+                        <div class="skeleton h-[60px]"></div>
+                    </div>
+                    <div id="statsContent" class="hidden space-y-6"></div>
+                    <div id="statsEmpty" class="hidden text-center text-gray-500 py-12">Нет данных за этот период</div>
+                </div>
+            </div>
+
+            <!-- Tab: Logs -->
+            <div id="tab-logs" class="tab-content">
+                <div class="mb-3 flex items-center gap-2 shrink-0">
+                    <div class="relative flex-1 max-w-xs">
+                        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                        <input id="logsSearch" type="text" placeholder="Поиск по админу, игроку, причине..." class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5865F2]/50">
+                    </div>
+                    <button id="logsSearchBtn" class="px-3 py-2 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors">Найти</button>
+                    <span id="logsCount" class="text-gray-600 text-xs"></span>
+                </div>
+                <div class="scroll-panel">
+                    <div id="logsContent" class="space-y-0.5"></div>
+                </div>
+                <div class="mt-2 text-center shrink-0">
+                    <div id="logsPaging" class="flex items-center justify-center gap-2"></div>
+                </div>
+            </div>
+
+            <!-- Tab: My Stats -->
+            <div id="tab-mystats" class="tab-content">
+                <div class="scroll-panel">
+                    <div id="myStatsContent" class="p-4"></div>
+                </div>
+            </div>
+
+            <!-- Tab: Admin Panel (owner only) -->
+            <div id="tab-adminpanel" class="tab-content">
+                <div class="scroll-panel p-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="glass-panel rounded-xl p-4">
+                            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-users text-[#5865F2]"></i> Пользователи сайта</h3>
+                            <div id="adminUsersList" class="space-y-2"></div>
+                        </div>
+                        <div class="glass-panel rounded-xl p-4">
+                            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-clock text-amber-400"></i> Логи входов</h3>
+                            <div id="adminLoginLogs" class="space-y-1"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- ====== RIGHT SIDEBAR ====== -->
+        <aside class="flex flex-col gap-3 shrink-0" style="width:220px">
+            <!-- Profile card -->
+            <div class="glass-panel rounded-2xl p-4 text-center">
+                <div class="relative w-16 h-16 mx-auto mb-3">
+                    <img id="profileAvatar" src="" alt="" class="w-16 h-16 rounded-full object-cover hidden">
+                    <div id="profilePlaceholder" class="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+                        <i class="ph ph-user text-2xl text-gray-500"></i>
+                    </div>
+                    <div class="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-emerald-400 border-[3px] border-[#16161a]"></div>
+                </div>
+                <div id="profileName" class="text-sm font-bold text-white truncate mb-0.5"></div>
+                <div id="profileRole" class="text-[11px] text-gray-400 truncate mb-3"></div>
+                <button id="logoutBtn" class="w-full py-2 rounded-xl bg-white/5 hover:bg-red-500/10 border border-white/8 hover:border-red-500/30 text-xs font-medium text-gray-400 hover:text-red-400 transition-all">
                     Выйти
                 </button>
             </div>
-        </div>
 
-        <!-- Tabs -->
-        <div class="header-fixed flex items-center gap-5 border-b border-white/8 mb-3 shrink-0">
-            <button class="tab-btn active py-2.5 text-sm font-semibold flex items-center gap-2" data-tab="online">
-                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Online
-                <span id="onlineCount" class="text-gray-500 font-normal text-xs"></span>
-            </button>
-            <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2" data-tab="all">
-                <i class="ph ph-users"></i> Все админы
-                <span id="allCount" class="text-gray-500 font-normal text-xs"></span>
-            </button>
-            <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2" data-tab="stats">
-                <i class="ph ph-chart-bar"></i> Статистика
-            </button>
-            <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2" data-tab="logs">
-                <i class="ph ph-scroll"></i> Логи
-            </button>
-            <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2" data-tab="mystats">
-                <i class="ph ph-user-circle"></i> Мои наказания
-            </button>
-            <button class="tab-btn py-2.5 text-sm font-semibold text-gray-400 flex items-center gap-2 tab-owner-only" data-tab="adminpanel" style="display:none">
-                <i class="ph ph-wrench"></i> Админка
-            </button>
-        </div>
-
-        <!-- Tab: Online — cards -->
-        <div id="tab-online" class="tab-content active">
-            <div class="scroll-panel">
-                <div id="onlineGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                    <div class="col-span-full grid grid-cols-4 gap-3">
-                        <div class="skeleton h-[140px]"></div>
-                        <div class="skeleton h-[140px]"></div>
-                        <div class="skeleton h-[140px]"></div>
-                        <div class="skeleton h-[140px]"></div>
-                    </div>
+            <!-- Панель управления -->
+            <div class="glass-panel rounded-2xl p-4">
+                <div class="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">Панель управления</div>
+                <div class="space-y-1">
+                    <button class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left">
+                        <i class="ph ph-gear text-sm"></i> Обновить данные
+                    </button>
+                    <button id="hideStatsBtn" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left tab-owner-only" style="display:none">
+                        <i class="ph ph-eye-slash text-sm"></i> Скрыть из статистики
+                    </button>
                 </div>
             </div>
-        </div>
-
-        <!-- Tab: All — table -->
-        <div id="tab-all" class="tab-content">
-            <div class="glass-panel rounded-xl p-3 mb-3 shrink-0">
-                <div class="flex items-center gap-3">
-                    <i class="ph ph-magnifying-glass text-gray-500"></i>
-                    <input type="text" id="searchInput" placeholder="Поиск по имени, SteamID, Discord..."
-                        class="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-500">
-                    <span id="status" class="text-sm text-gray-500 whitespace-nowrap"></span>
-                </div>
-            </div>
-            <div class="scroll-panel rounded-xl border border-white/10 bg-white/[0.03]">
-                <table class="w-full text-left text-sm">
-                    <thead class="bg-white/5 text-gray-400 sticky top-0 z-10">
-                        <tr>
-                            <th class="px-3 py-3"></th>
-                            <th class="px-3 py-3 font-semibold">Имя</th>
-                            <th class="px-3 py-3 font-semibold">SteamID</th>
-                            <th class="px-3 py-3 font-semibold">Группа</th>
-                            <th class="px-3 py-3 font-semibold">Статус</th>
-                            <th class="px-3 py-3 font-semibold">Discord</th>
-                            <th class="px-3 py-3 font-semibold">#</th>
-                            <th class="px-3 py-3 font-semibold">K/D</th>
-                            <th class="px-3 py-3 font-semibold">Часы</th>
-                            <th class="px-3 py-3 font-semibold">Faceit</th>
-                            <th class="px-3 py-3 font-semibold">Бан</th>
-                            <th class="px-3 py-3 font-semibold">Обновлено</th>
-                            <th class="px-3 py-3 font-semibold">Ссылки</th>
-                        </tr>
-                    </thead>
-                    <tbody id="rows"></tbody>
-                </table>
-            </div>
-            <div class="mt-2 text-center shrink-0">
-                <span id="pagination" class="text-xs text-gray-500"></span>
-            </div>
-        </div>
-
-        <!-- Tab: Stats -->
-        <div id="tab-stats" class="tab-content">
-            <div id="statsToolbar" class="stats-toolbar mb-3 shrink-0">
-                <div class="flex items-center justify-between mb-2">
-                    <div>
-                        <p id="periodLabel" class="text-gray-500 text-xs"></p>
-                        <p id="totalText" class="text-gray-600 text-xs mt-0.5"></p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-1.5 mb-3 flex-wrap">
-                    <button class="period-btn active px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-month">Этот месяц</button>
-                    <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-month">Прошлый месяц</button>
-                    <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">Эта неделя (Пн–Вс)</button>
-                    <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-week">Прошлая неделя</button>
-                    <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="all">Все время</button>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10">
-                        <button id="viewGrouped" class="view-btn active px-3 py-1.5 rounded-md text-xs font-medium border border-transparent">
-                            <i class="ph ph-users mr-1"></i>По ролям
-                        </button>
-                        <button id="viewTop" class="view-btn px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 border border-transparent">
-                            <i class="ph ph-trophy mr-1"></i>Топ
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="scroll-panel">
-                <div id="statsLoading" class="space-y-3">
-                    <div class="skeleton h-[60px]"></div>
-                    <div class="skeleton h-[60px]"></div>
-                    <div class="skeleton h-[60px]"></div>
-                    <div class="skeleton h-[60px]"></div>
-                </div>
-                <div id="statsContent" class="hidden space-y-6"></div>
-                <div id="statsEmpty" class="hidden text-center text-gray-500 py-12">Нет данных за этот период</div>
-            </div>
-        </div>
-
-        <!-- Tab: Logs -->
-        <div id="tab-logs" class="tab-content">
-            <div class="mb-3 flex items-center gap-2 shrink-0">
-                <div class="relative flex-1 max-w-xs">
-                    <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
-                    <input id="logsSearch" type="text" placeholder="Поиск по админу, игроку, причине..." class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5865F2]/50">
-                </div>
-                <button id="logsSearchBtn" class="px-3 py-2 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors">Найти</button>
-                <span id="logsCount" class="text-gray-600 text-xs"></span>
-            </div>
-            <div class="scroll-panel">
-                <div id="logsContent" class="space-y-0.5"></div>
-            </div>
-            <div class="mt-2 text-center shrink-0">
-                <div id="logsPaging" class="flex items-center justify-center gap-2"></div>
-            </div>
-        </div>
-
-        <!-- Tab: My Stats -->
-        <div id="tab-mystats" class="tab-content">
-            <div class="scroll-panel">
-                <div id="myStatsContent" class="p-4"></div>
-            </div>
-        </div>
-
-        <!-- Tab: Admin Panel (owner only) -->
-        <div id="tab-adminpanel" class="tab-content">
-            <div class="scroll-panel p-4">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="glass-panel rounded-xl p-4">
-                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-users text-[#5865F2]"></i> Пользователи сайта</h3>
-                        <div id="adminUsersList" class="space-y-2"></div>
-                    </div>
-                    <div class="glass-panel rounded-xl p-4">
-                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-clock text-amber-400"></i> Логи входов</h3>
-                        <div id="adminLoginLogs" class="space-y-1"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </aside>
     </div>
 
     <script src="/app.js?v=9"></script>

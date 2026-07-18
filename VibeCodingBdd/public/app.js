@@ -645,13 +645,16 @@ function loadLogs(page) {
 
 // ===================== TABS =====================
 var statsLoaded = false;
-document.querySelectorAll(".tab-btn").forEach(function(btn) {
+var tabTitles = { online: '<i class="ph ph-users-three text-[#5865F2]"></i> Online', all: '<i class="ph ph-users text-[#5865F2]"></i> Все админы', stats: '<i class="ph ph-chart-bar text-[#5865F2]"></i> Статистика', logs: '<i class="ph ph-scroll text-[#5865F2]"></i> Логи', mystats: '<i class="ph ph-user-circle text-[#5865F2]"></i> Мои наказания', adminpanel: '<i class="ph ph-wrench text-[#5865F2]"></i> Админка' };
+document.querySelectorAll(".sidebar-nav-btn").forEach(function(btn) {
   btn.addEventListener("click", function() {
-    document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
+    document.querySelectorAll(".sidebar-nav-btn").forEach(function(b) { b.classList.remove("active"); });
     document.querySelectorAll(".tab-content").forEach(function(c) { c.classList.remove("active"); });
     btn.classList.add("active");
     var tab = document.getElementById("tab-" + btn.dataset.tab);
     if (tab) tab.classList.add("active");
+    var titleEl = document.getElementById("contentTitle");
+    if (titleEl) titleEl.innerHTML = tabTitles[btn.dataset.tab] || '';
     if (btn.dataset.tab === "all" && !adminsLoaded) {
       adminsLoaded = true;
       loadPage(true);
