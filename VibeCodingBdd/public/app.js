@@ -754,29 +754,33 @@ function loadMyStats() {
   el.innerHTML = '<div class="skeleton h-[80px]"></div>';
   fetch("/api/my-stats").then(function(r){return r.json()}).then(function(data) {
     if (!data.steamid) {
-      el.innerHTML = '<div class="text-center text-gray-500 py-8">Не удалось определить ваш SteamID. Обратитесь к администратору.</div>';
+      el.innerHTML = '<div class="glass-panel rounded-xl p-6 text-center"><div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3"><i class="ph ph-user-circle text-3xl text-gray-600"></i></div><div class="text-gray-400 text-sm mb-1">SteamID не найден</div><div class="text-gray-600 text-xs">Ваш Discord аккаунт не привязан к профилю на сервере</div></div>';
       return;
     }
-    var html = '<div class="glass-panel rounded-xl p-4 mb-4">';
-    html += '<div class="flex items-center gap-4 mb-4">';
-    html += '<div class="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center"><i class="ph ph-user text-xl text-gray-400"></i></div>';
-    html += '<div><div class="text-base font-bold text-white">' + esc(currentUser ? (currentUser.discord_display || currentUser.username) : '') + '</div>';
-    html += '<div class="text-xs text-gray-500 font-mono">' + esc(data.steamid) + '</div></div></div>';
-    html += '<div class="flex items-center gap-6">';
-    html += '<div class="text-center"><div class="text-2xl font-bold text-amber-400">' + data.bans + '</div><div class="text-[11px] text-gray-500">Банов</div></div>';
-    html += '<div class="text-center"><div class="text-2xl font-bold text-purple-400">' + data.mutes + '</div><div class="text-[11px] text-gray-500">Мутов</div></div>';
-    html += '<div class="text-center"><div class="text-2xl font-bold text-white">' + data.total + '</div><div class="text-[11px] text-gray-500">Всего</div></div>';
+    var html = '<div class="glass-panel rounded-xl p-5 mb-4">';
+    html += '<div class="flex items-center gap-4 mb-5">';
+    if (currentUser && currentUser.discord_avatar) {
+      html += '<img src="' + esc(currentUser.discord_avatar) + '" class="w-14 h-14 rounded-full object-cover">';
+    } else {
+      html += '<div class="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center"><i class="ph ph-user text-2xl text-gray-400"></i></div>';
+    }
+    html += '<div><div class="text-lg font-bold text-white">' + esc(currentUser ? (currentUser.discord_display || currentUser.username) : '') + '</div>';
+    html += '<div class="text-xs text-gray-500 font-mono mt-0.5">' + esc(data.steamid) + '</div></div></div>';
+    html += '<div class="flex items-center gap-6 mb-5">';
+    html += '<div class="flex-1 text-center py-3 rounded-xl bg-amber-500/10 border border-amber-500/20"><div class="text-2xl font-bold text-amber-400">' + data.bans + '</div><div class="text-[11px] text-gray-500 mt-0.5">Банов выдано</div></div>';
+    html += '<div class="flex-1 text-center py-3 rounded-xl bg-purple-500/10 border border-purple-500/20"><div class="text-2xl font-bold text-purple-400">' + data.mutes + '</div><div class="text-[11px] text-gray-500 mt-0.5">Мутов выдано</div></div>';
+    html += '<div class="flex-1 text-center py-3 rounded-xl bg-white/5 border border-white/10"><div class="text-2xl font-bold text-white">' + data.total + '</div><div class="text-[11px] text-gray-500 mt-0.5">Всего</div></div>';
     html += '</div></div>';
     if (data.rows && data.rows.length > 0) {
-      html += '<div class="glass-panel rounded-xl p-3"><div class="text-xs font-semibold text-gray-400 mb-2">Последние наказания</div>';
+      html += '<div class="glass-panel rounded-xl p-4"><div class="text-xs font-semibold text-gray-400 mb-3">Последние наказания</div>';
       html += '<div class="space-y-1">';
-      data.rows.slice(0, 20).forEach(function(r) {
+      data.rows.slice(0, 30).forEach(function(r) {
         var t = r.type === 1 ? '<span class="text-amber-400">Бан</span>' : '<span class="text-purple-400">Мут</span>';
         var s = r.status === 1 || r.status === 4 ? '<span class="text-emerald-400">Активен</span>' : r.status === 2 ? '<span class="text-gray-500">Снят</span>' : '<span class="text-yellow-400">Истёк</span>';
-        html += '<div class="flex items-center gap-2 text-xs py-1.5 px-2 rounded bg-white/[0.03]">';
+        html += '<div class="flex items-center gap-2 text-xs py-2 px-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors">';
         html += '<span class="shrink-0 w-[120px] text-gray-500 font-mono">' + fmtTs(r.created) + '</span>';
-        html += '<span class="shrink-0">' + t + '</span>';
-        html += '<span class="flex-1 min-w-0 text-gray-400 truncate">' + esc(r.reason || '—') + '</span>';
+        html += '<span class="shrink-0 w-[40px]">' + t + '</span>';
+        html += '<span class="flex-1 min-w-0 text-gray-400 truncate" title="' + esc(r.reason) + '">' + esc(r.reason || '—') + '</span>';
         html += '<span class="shrink-0 text-gray-500">' + fmtDur(r.duration) + '</span>';
         html += '<span class="shrink-0">' + s + '</span>';
         html += '</div>';
@@ -784,8 +788,8 @@ function loadMyStats() {
       html += '</div></div>';
     }
     el.innerHTML = html;
-  }).catch(function() {
-    el.innerHTML = '<div class="text-center text-gray-500 py-8">Ошибка загрузки</div>';
+  }).catch(function(err) {
+    el.innerHTML = '<div class="glass-panel rounded-xl p-6 text-center"><div class="text-red-400 text-sm">Ошибка загрузки: ' + esc(err.message) + '</div></div>';
   });
 }
 

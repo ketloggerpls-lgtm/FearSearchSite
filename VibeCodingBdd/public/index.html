@@ -51,11 +51,11 @@
         <div class="absolute -top-[300px] left-[10%] w-[500px] h-[500px] bg-[#5865F2] rounded-full blur-[150px] opacity-[0.05]"></div>
     </div>
 
-    <div class="relative z-10 h-full flex flex-col max-w-[1800px] mx-auto px-4 pt-4 pb-2">
+        <div class="relative z-10 h-full flex flex-col max-w-[1800px] mx-auto px-4 pt-4 pb-2">
         <!-- Top bar: info left + title center + profile right -->
-        <div class="header-fixed flex items-center justify-between mb-3 shrink-0">
+        <div class="header-fixed flex items-center justify-between mb-3 shrink-0" style="min-height:52px">
             <!-- Left: Stats info -->
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 shrink-0" style="min-width:320px">
                 <div class="glass-panel rounded-xl p-3 flex items-center gap-4">
                     <div class="flex items-center gap-2.5">
                         <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -90,7 +90,7 @@
             </div>
 
             <!-- Center: Title + nav -->
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-4 shrink-0">
                 <div class="flex items-center gap-2">
                     <div class="w-8 h-8 rounded-lg bg-[#5865F2]/20 flex items-center justify-center">
                         <i class="ph ph-shield-check text-[#5865F2]"></i>
@@ -109,7 +109,7 @@
             </div>
 
             <!-- Right: Profile -->
-            <div class="glass-panel rounded-xl p-3 flex items-center gap-3 min-w-[200px]">
+            <div class="glass-panel rounded-xl p-3 flex items-center gap-3 shrink-0" style="min-width:200px">
                 <div class="relative shrink-0">
                     <img id="profileAvatar" src="" alt="" class="w-10 h-10 rounded-full object-cover hidden">
                     <div id="profilePlaceholder" class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hidden">

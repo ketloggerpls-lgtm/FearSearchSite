@@ -253,6 +253,13 @@ app.get("/api/auth/me", async (req, res) => {
   var user = { id: req.user.user_id, username: req.user.username, role: req.user.role, discord_name: req.user.discord_name, discord_id: req.user.discord_id };
   if (req.user.discord_id) {
     try {
+      const profResult = await require("./db").pool.query(
+        `SELECT steamid FROM profiles WHERE discord_id = $1 LIMIT 1`,
+        [String(req.user.discord_id)]
+      );
+      if (profResult.rows.length) user.steamid = profResult.rows[0].steamid;
+    } catch (_) {}
+    try {
       var member = await fetchDiscordMember(req.user.discord_id);
       if (member && member.user) {
         user.discord_avatar = member.user.avatar ? "https://cdn.discordapp.com/guilds/" + DISCORD_GUILD_ID + "/users/" + req.user.discord_id + "/avatars/" + member.user.avatar + ".png?size=64" : null;

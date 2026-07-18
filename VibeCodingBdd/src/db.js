@@ -576,14 +576,16 @@ async function upsertPunishments(type, rows) {
 }
 
 async function getStaffPunishments(adminSteamid, type, limit = 100) {
+  if (type && Number(type) > 0) {
+    const result = await pool.query(
+      `SELECT * FROM punishments WHERE admin_steamid = $1 AND type = $2 ORDER BY created DESC LIMIT $3`,
+      [adminSteamid, type, limit]
+    );
+    return result.rows;
+  }
   const result = await pool.query(
-    `
-    SELECT * FROM punishments
-    WHERE admin_steamid = $1 AND type = $2
-    ORDER BY created DESC
-    LIMIT $3
-    `,
-    [adminSteamid, type, limit]
+    `SELECT * FROM punishments WHERE admin_steamid = $1 ORDER BY created DESC LIMIT $2`,
+    [adminSteamid, limit]
   );
   return result.rows;
 }
@@ -848,7 +850,7 @@ async function isOwner(steamid) {
 
 async function getReportsCount() {
   try {
-    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports WHERE created_at > NOW() - INTERVAL '30 days'`);
+    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports WHERE created_at > NOW() - INTERVAL '24 hours'`);
     return r.rows[0] ? r.rows[0].cnt : 0;
   } catch (_) { return 0; }
 }
