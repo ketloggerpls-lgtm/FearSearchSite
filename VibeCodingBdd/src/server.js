@@ -27,7 +27,11 @@ const {
   MIN_SITE_ROLE_RANK,
   getHiddenStaff,
   addHiddenStaff,
-  removeHiddenStaff
+  removeHiddenStaff,
+  isOwner,
+  getOwners,
+  addOwner,
+  removeOwner
 } = require("./db");
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const logger = require("./logger");
@@ -545,11 +549,20 @@ app.post("/api/punishments-sync", async (_req, res) => {
   res.status(202).json({ ok: true, message: "Punishments sync started" });
 });
 
-function requireOwner(req, res, next) {
-  if (!req.user || req.user.role !== "Владелец") {
-    return res.status(403).json({ error: "Только владелец" });
+async function requireOwner(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  if (req.user.discord_id) {
+    const member = await fetchDiscordMember(req.user.discord_id);
+    if (member) {
+      const resolved = resolveDiscordRole(member.roles || []);
+      if (resolved && (DISCORD_ROLE_LABELS[resolved.roleId] === "Владелец" || DISCORD_ROLE_LABELS[resolved.roleId] === "Куратор")) {
+        return next();
+      }
+    }
   }
-  next();
+  const check = await isOwner(String(req.user.steamid || req.user.username));
+  if (check) return next();
+  return res.status(403).json({ error: "Только владелец" });
 }
 
 app.get("/api/hidden-staff", requireOwner, async (_req, res) => {
@@ -575,6 +588,35 @@ app.post("/api/hidden-staff", requireOwner, async (req, res) => {
 app.delete("/api/hidden-staff/:steamid", requireOwner, async (req, res) => {
   try {
     await removeHiddenStaff(req.params.steamid);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/owners", requireOwner, async (_req, res) => {
+  try {
+    const list = await getOwners();
+    res.json({ owners: list });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/owners", requireOwner, async (req, res) => {
+  try {
+    const { steamid } = req.body;
+    if (!steamid) return res.status(400).json({ error: "steamid required" });
+    await addOwner(String(steamid), req.user.username);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/owners/:steamid", requireOwner, async (req, res) => {
+  try {
+    await removeOwner(req.params.steamid);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

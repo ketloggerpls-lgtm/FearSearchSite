@@ -183,6 +183,16 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owners (
+      id SERIAL PRIMARY KEY,
+      steamid TEXT NOT NULL UNIQUE,
+      added_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`INSERT INTO owners (steamid, added_by) VALUES ($1, 'seed') ON CONFLICT (steamid) DO NOTHING`, ['76561198675051863']);
 }
 
 async function createRefreshRun() {
@@ -818,6 +828,24 @@ async function removeHiddenStaff(steamid) {
   await pool.query(`DELETE FROM hidden_staff WHERE steamid = $1`, [steamid]);
 }
 
+async function getOwners() {
+  const result = await pool.query(`SELECT steamid, added_by, created_at FROM owners ORDER BY created_at DESC`);
+  return result.rows;
+}
+
+async function addOwner(steamid, addedBy) {
+  await pool.query(`INSERT INTO owners (steamid, added_by) VALUES ($1, $2) ON CONFLICT (steamid) DO NOTHING`, [steamid, addedBy]);
+}
+
+async function removeOwner(steamid) {
+  await pool.query(`DELETE FROM owners WHERE steamid = $1`, [steamid]);
+}
+
+async function isOwner(steamid) {
+  const result = await pool.query(`SELECT 1 FROM owners WHERE steamid = $1`, [steamid]);
+  return result.rowCount > 0;
+}
+
 async function getStaffStatsForPeriod(dateFrom, dateTo) {
   let dateWhere = "";
   const params = [];
@@ -881,5 +909,9 @@ module.exports = {
   getPunishmentLogsCount,
   getHiddenStaff,
   addHiddenStaff,
-  removeHiddenStaff
+  removeHiddenStaff,
+  getOwners,
+  addOwner,
+  removeOwner,
+  isOwner
 };

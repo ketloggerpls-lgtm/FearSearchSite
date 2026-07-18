@@ -315,6 +315,23 @@ def _init_table():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_panel_login_logs_created_at ON panel_login_logs(created_at)")
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS owners (
+                    id SERIAL PRIMARY KEY,
+                    steamid TEXT NOT NULL UNIQUE,
+                    added_by TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS hidden_staff (
+                    id SERIAL PRIMARY KEY,
+                    steamid TEXT NOT NULL UNIQUE,
+                    hidden_by TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
             logger.info("[DB] Таблицы инициализированы")
     except Exception as e:
         logger.error(f"[DB] Ошибка создания таблиц: {e}")
@@ -1773,6 +1790,116 @@ def db_cleanup_old_data():
         logger.error(f"[DB] Ошибка cleanup: {e}")
         return stats
 
+
+# ── Owners ───────────────────────────────────────────────────────────────────
+
+def db_get_owners() -> list[str]:
+    """Получить список SteamID владельцев."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT steamid FROM owners ORDER BY created_at")
+            return [row["steamid"] for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_owners: {e}")
+        return []
+
+
+def db_add_owner(steamid: str, added_by: str = "") -> bool:
+    """Добавить SteamID в список владельцев."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO owners (steamid, added_by) VALUES (%s, %s) ON CONFLICT (steamid) DO NOTHING",
+                (steamid.strip(), added_by)
+            )
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка add_owner: {e}")
+        return False
+
+
+def db_remove_owner(steamid: str) -> bool:
+    """Удалить SteamID из списка владельцев."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM owners WHERE steamid = %s", (steamid.strip(),))
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка remove_owner: {e}")
+        return False
+
+
+def db_is_owner(steamid: str) -> bool:
+    """Проверить, является ли SteamID владельцем."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM owners WHERE steamid = %s", (steamid.strip(),))
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.error(f"[DB] Ошибка is_owner: {e}")
+        return False
+
+
+# ── Hidden Staff ─────────────────────────────────────────────────────────────
+
+def db_get_hidden_staff() -> list[str]:
+    """Получить список скрытых SteamID."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT steamid FROM hidden_staff ORDER BY created_at")
+            return [row["steamid"] for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"[DB] Ошибка get_hidden_staff: {e}")
+        return []
+
+
+def db_add_hidden_staff(steamid: str, hidden_by: str = "") -> bool:
+    """Добавить SteamID в скрытые."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO hidden_staff (steamid, hidden_by) VALUES (%s, %s) ON CONFLICT (steamid) DO NOTHING",
+                (steamid.strip(), hidden_by)
+            )
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка add_hidden_staff: {e}")
+        return False
+
+
+def db_remove_hidden_staff(steamid: str) -> bool:
+    """Удалить SteamID из скрытых."""
+    conn = _get_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM hidden_staff WHERE steamid = %s", (steamid.strip(),))
+        return True
+    except Exception as e:
+        logger.error(f"[DB] Ошибка remove_hidden_staff: {e}")
+        return False
+
+
+# ── Cleanup / Maintenance ────────────────────────────────────────────────────
 
 def db_wipe_heavy_columns():
     """Один раз обнулить тяжёлые колонки (server_data в panel_server_activity).

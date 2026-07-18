@@ -1419,6 +1419,55 @@ async def cmd_listwhite(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
+# ── /addowner /removeowner /listowners ───────────────────────────────────────
+
+@tree.command(name="addowner", description="Добавить SteamID в список владельцев панели")
+@app_commands.describe(steamid="SteamID64 игрока (76561...)")
+async def cmd_addowner(interaction: discord.Interaction, steamid: str):
+    if not _has_owner_access(interaction.user):
+        return await interaction.response.send_message("❌ Только Владелец или Куратор могут управлять списком владельцев.", ephemeral=True)
+    steamid = steamid.strip()
+    if not steamid.isdigit() or len(steamid) < 10:
+        return await interaction.response.send_message("❌ Некорректный SteamID.", ephemeral=True)
+    added_by = str(interaction.user.id)
+    if _db.db_add_owner(steamid, added_by):
+        await interaction.response.send_message(f"✅ `{steamid}` добавлен в список владельцев панели.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Ошибка при добавлении.", ephemeral=True)
+
+
+@tree.command(name="removeowner", description="Удалить SteamID из списка владельцев панели")
+@app_commands.describe(steamid="SteamID64 игрока")
+async def cmd_removeowner(interaction: discord.Interaction, steamid: str):
+    if not _has_owner_access(interaction.user):
+        return await interaction.response.send_message("❌ Только Владелец или Куратор могут управлять списком владельцев.", ephemeral=True)
+    steamid = steamid.strip()
+    owners = _db.db_get_owners()
+    if steamid not in owners:
+        return await interaction.response.send_message(f"❌ `{steamid}` нет в списке владельцев.", ephemeral=True)
+    if _db.db_remove_owner(steamid):
+        await interaction.response.send_message(f"✅ `{steamid}` удалён из списка владельцев панели.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Ошибка при удалении.", ephemeral=True)
+
+
+@tree.command(name="listowners", description="Показать список владельцев панели")
+async def cmd_listowners(interaction: discord.Interaction):
+    if not _has_owner_access(interaction.user):
+        return await interaction.response.send_message("❌ Только Владелец или Куратор могут просматривать список владельцев.", ephemeral=True)
+    owners = _db.db_get_owners()
+    if not owners:
+        return await interaction.response.send_message("📋 Список владельцев пуст.", ephemeral=True)
+    lines = [f"`{sid}`" for sid in owners]
+    embed = discord.Embed(
+        title=f"👑 Владельцы панели ({len(owners)})",
+        description="\n".join(lines),
+        color=0xf1c40f
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @tree.command(name="help", description="Показать список доступных команд")
 async def cmd_help(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -1473,7 +1522,10 @@ async def cmd_help(interaction: discord.Interaction):
             "**/unfreeze_admin** — Разморозить\n"
             "**/edit_punishment** — Изменить наказание\n"
             "**/delete_punishment** — Удалить наказание\n"
-            "**/promocode** — Создать промокод"
+            "**/promocode** — Создать промокод\n"
+            "**/addowner** — Добавить владельца панели\n"
+            "**/removeowner** — Убрать владельца панели\n"
+            "**/listowners** — Список владельцев панели"
         ), inline=False)
 
     if _is_admin(interaction):
