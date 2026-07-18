@@ -575,7 +575,7 @@ async function getStaffPunishmentStats(adminSteamids) {
     `
     SELECT admin_steamid, type, COUNT(*)::int as count
     FROM punishments
-    WHERE admin_steamid = ANY($1) AND status IN (1, 2)
+    WHERE admin_steamid = ANY($1) AND status IN (1, 4)
     GROUP BY admin_steamid, type
     `,
     [adminSteamids]

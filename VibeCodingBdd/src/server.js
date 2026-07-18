@@ -290,8 +290,8 @@ app.get("/api/staff-stats", async (req, res) => {
         };
       }
       const s = staffMap[sid];
-      const isActive = row.status === 1 || row.status === 2;
-      const isRemoved = row.status === 4;
+      const isActive = row.status === 1 || row.status === 4;
+      const isRemoved = row.status === 2;
       if (row.type === 1) {
         if (isActive) s.bans += row.count;
         if (isRemoved) s.removed += row.count;
