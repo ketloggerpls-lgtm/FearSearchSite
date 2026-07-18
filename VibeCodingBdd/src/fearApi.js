@@ -182,5 +182,6 @@ module.exports = {
   fetchProfile,
   fetchStaffPunishments,
   fetchJson,
-  sleep
+  sleep,
+  sleepMs
 };

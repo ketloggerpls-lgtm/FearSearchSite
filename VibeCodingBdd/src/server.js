@@ -114,6 +114,10 @@ app.get("/staff-stats", (_req, res) => {
   res.sendFile(path.join(publicDir, "staff-stats.html"));
 });
 
+app.get("/vdf", (_req, res) => {
+  res.sendFile(path.join(publicDir, "vdf.html"));
+});
+
 app.use((req, _res, next) => {
   req.cookies = {};
   const cookieHeader = req.headers.cookie;
