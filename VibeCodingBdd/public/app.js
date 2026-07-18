@@ -26,21 +26,10 @@ function loadProfile(user) {
 }
 
 function loadDashboardStats() {
-  fetch("/api/servers").then(function(r){return r.json()}).then(function(data) {
-    var servers = data.servers || [];
-    var players = 0, admins = 0;
-    servers.forEach(function(s) {
-      var p = (s.live_data && s.live_data.players) || [];
-      players += p.length;
-      admins += p.filter(function(x){return x.is_admin}).length;
-    });
-    document.getElementById("statPlayers").textContent = players;
-    document.getElementById("statAdmins").textContent = admins;
-  }).catch(function(){});
-  fetch("/api/punishments/staff/stats").then(function(r){return r.json()}).then(function(data) {
-    var total = 0;
-    Object.values(data).forEach(function(s){ total += (s.bans||0) + (s.mutes||0); });
-    document.getElementById("statReports").textContent = total;
+  fetch("/api/dashboard/stats").then(function(r){return r.json()}).then(function(data) {
+    document.getElementById("statAdmins").textContent = data.adminsOnline || 0;
+    document.getElementById("statPlayers").textContent = data.playersOnline || 0;
+    document.getElementById("statReports").textContent = data.reportsCount || 0;
   }).catch(function(){});
 }
 
@@ -669,7 +658,7 @@ if (refreshBtn) {
       var response = await fetch("/api/refresh", { method: "POST" });
       var data = await response.json();
       if (!response.ok) throw new Error(data.error || "Ошибка");
-      setTimeout(function() { loadOnlineAdmins(); }, 3000);
+      setTimeout(function() { loadOnlineAdmins(); loadDashboardStats(); }, 3000);
     } catch (error) {
       alert(error.message);
     } finally {

@@ -846,6 +846,13 @@ async function isOwner(steamid) {
   return result.rowCount > 0;
 }
 
+async function getReportsCount() {
+  try {
+    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports`);
+    return r.rows[0] ? r.rows[0].cnt : 0;
+  } catch (_) { return 0; }
+}
+
 async function getStaffStatsForPeriod(dateFrom, dateTo) {
   let dateWhere = "";
   const params = [];
@@ -913,5 +920,6 @@ module.exports = {
   getOwners,
   addOwner,
   removeOwner,
-  isOwner
+  isOwner,
+  getReportsCount
 };

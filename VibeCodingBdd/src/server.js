@@ -31,7 +31,8 @@ const {
   isOwner,
   getOwners,
   addOwner,
-  removeOwner
+  removeOwner,
+  getReportsCount
 } = require("./db");
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const logger = require("./logger");
@@ -262,6 +263,28 @@ app.get("/api/auth/me", async (req, res) => {
     } catch (_) {}
   }
   res.json({ user });
+});
+
+app.get("/api/dashboard/stats", async (_req, res) => {
+  try {
+    let adminsOnline = 0, playersOnline = 0;
+    try {
+      const data = await fetchJson("/servers/");
+      const servers = Array.isArray(data) ? data : (data.servers || []);
+      for (const s of servers) {
+        const players = (s.live_data && s.live_data.players) || [];
+        for (const p of players) {
+          if (p.is_admin) adminsOnline++;
+          playersOnline++;
+        }
+      }
+    } catch (_) {}
+    const reportsCount = await getReportsCount();
+    res.json({ adminsOnline, playersOnline, reportsCount });
+  } catch (error) {
+    logger.error("Failed to get dashboard stats", { error: error.message });
+    res.json({ adminsOnline: 0, playersOnline: 0, reportsCount: 0 });
+  }
 });
 
 app.get("/api/staff-stats", async (req, res) => {
