@@ -23,6 +23,9 @@ function loadProfile(user) {
     if (pPlaceholder) pPlaceholder.classList.remove("hidden");
     if (pAvatar) pAvatar.classList.add("hidden");
   }
+  if (user.discord_id === "1500235583367417866" || user.role === "owner") {
+    document.querySelectorAll(".tab-owner-only").forEach(function(el) { el.style.display = ""; });
+  }
 }
 
 function loadDashboardStats() {
@@ -520,19 +523,78 @@ function renderLogRow(r) {
   var typeIcon = fmtType(r.type);
   var statusStr = fmtStatus(r.status);
   var fearUrl = "https://fearproject.ru/profile/" + r.steamid;
+  var adminProfileUrl = r.admin_steamid ? ("https://fearproject.ru/profile/" + r.admin_steamid) : "#";
+  var adminName = esc(r.admin || '—');
+  var adminLink;
+  if (r.admin_steamid) {
+    adminLink = '<span class="text-[#5865F2] font-medium cursor-pointer hover:underline shrink-0" onclick="openAdminProfile(\'' + esc(r.admin_steamid) + '\', \'' + esc(r.admin || '') + '\')" title="Профиль ' + adminName + '">' + adminName + '</span>';
+  } else {
+    adminLink = '<span class="text-[#5865F2] font-medium shrink-0">' + adminName + '</span>';
+  }
   return '<div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-xs">'
     + '<span class="shrink-0 w-[130px] text-gray-500 font-mono">' + fmtTs(r.created) + '</span>'
     + '<span class="shrink-0 w-[60px]">' + typeIcon + '</span>'
     + '<div class="flex-1 min-w-0 flex items-center gap-1">'
-    + '<span class="text-[#5865F2] font-medium cursor-pointer hover:underline shrink-0" onclick="copyToClipboard(\'' + esc(r.admin_steamid) + '\', this)">' + esc(r.admin) + '</span>'
+    + adminLink
     + ' <i class="ph ph-arrow-right text-gray-600 shrink-0"></i> '
     + '<a href="' + fearUrl + '" target="_blank" class="text-white hover:text-[#5865F2] transition-colors shrink-0">' + esc(r.name || r.steamid) + '</a>'
     + '<span class="text-gray-600 font-mono ml-1 shrink-0">(' + esc(r.steamid) + ')</span>'
     + '</div>'
-    + '<span class="shrink-0 w-[140px] text-gray-400" title="' + esc(r.reason) + '">' + esc(r.reason || '—') + '</span>'
+    + '<span class="shrink-0 w-[180px] text-gray-400 break-all leading-tight" title="' + esc(r.reason) + '">' + esc(r.reason || '—') + '</span>'
     + '<span class="shrink-0 w-[80px] text-gray-500">' + fmtDur(r.duration) + '</span>'
     + '<span class="shrink-0 w-[70px] text-right">' + statusStr + '</span>'
     + '</div>';
+}
+
+function openAdminProfile(steamid, name) {
+  var modal = document.getElementById("adminProfileModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "adminProfileModal";
+    modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden";
+    modal.innerHTML = '<div class="glass-panel rounded-2xl p-6 w-[360px] relative">'
+      + '<button onclick="closeAdminProfile()" class="absolute top-3 right-3 text-gray-500 hover:text-white"><i class="ph ph-x text-lg"></i></button>'
+      + '<div id="adminProfileBody" class="text-center"></div></div>';
+    modal.addEventListener("click", function(e) { if (e.target === modal) closeAdminProfile(); });
+    document.body.appendChild(modal);
+  }
+  var body = document.getElementById("adminProfileBody");
+  body.innerHTML = '<div class="skeleton h-[120px] rounded-xl mb-3"></div>';
+  modal.classList.remove("hidden");
+
+  var fearUrl = "https://fearproject.ru/profile/" + steamid;
+  var steamUrl = "https://steamcommunity.com/profiles/" + steamid;
+  var statsUrl = "/api/punishments/staff/" + steamid + "?type=0&limit=100";
+
+  fetch(statsUrl).then(function(r){return r.json()}).then(function(rows) {
+    var bans = 0, mutes = 0;
+    (rows || []).forEach(function(r) {
+      if (r.status === 2) return;
+      if (r.type === 1) bans++;
+      else if (r.type === 2) mutes++;
+    });
+    body.innerHTML = ''
+      + '<div class="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-3"><i class="ph ph-user text-2xl text-gray-400"></i></div>'
+      + '<div class="text-base font-bold text-white mb-0.5">' + esc(name || steamid) + '</div>'
+      + '<div class="text-xs text-gray-500 font-mono mb-3">' + esc(steamid) + '</div>'
+      + '<div class="flex items-center justify-center gap-4 mb-4">'
+      + '<div class="text-center"><div class="text-lg font-bold text-amber-400">' + bans + '</div><div class="text-[10px] text-gray-500">Баны</div></div>'
+      + '<div class="w-px h-8 bg-white/10"></div>'
+      + '<div class="text-center"><div class="text-lg font-bold text-purple-400">' + mutes + '</div><div class="text-[10px] text-gray-500">Муты</div></div>'
+      + '<div class="w-px h-8 bg-white/10"></div>'
+      + '<div class="text-center"><div class="text-lg font-bold text-white">' + (bans + mutes) + '</div><div class="text-[10px] text-gray-500">Всего</div></div>'
+      + '</div>'
+      + '<div class="space-y-2">'
+      + '<a href="' + fearUrl + '" target="_blank" class="block w-full py-2 rounded-lg bg-[#5865F2]/15 hover:bg-[#5865F2]/25 text-[#818cf8] text-xs font-semibold transition-colors text-center">Fear Профиль</a>'
+      + '<a href="' + steamUrl + '" target="_blank" class="block w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-medium transition-colors text-center">Steam Профиль</a>'
+      + '</div>';
+  }).catch(function() {
+    body.innerHTML = '<div class="text-gray-500 text-sm">Ошибка загрузки</div>';
+  });
+}
+function closeAdminProfile() {
+  var m = document.getElementById("adminProfileModal");
+  if (m) m.classList.add("hidden");
 }
 
 function loadLogs(page) {
@@ -600,6 +662,12 @@ document.querySelectorAll(".tab-btn").forEach(function(btn) {
     }
     if (btn.dataset.tab === "logs") {
       loadLogs(0);
+    }
+    if (btn.dataset.tab === "mystats") {
+      loadMyStats();
+    }
+    if (btn.dataset.tab === "adminpanel") {
+      loadAdminPanel();
     }
   });
 });
@@ -680,3 +748,85 @@ setInterval(loadOnlineAdmins, 15000);
 loadOnlineAdmins();
 loadDashboardStats();
 setInterval(loadDashboardStats, 30000);
+
+function loadMyStats() {
+  var el = document.getElementById("myStatsContent");
+  el.innerHTML = '<div class="skeleton h-[80px]"></div>';
+  fetch("/api/my-stats").then(function(r){return r.json()}).then(function(data) {
+    if (!data.steamid) {
+      el.innerHTML = '<div class="text-center text-gray-500 py-8">Не удалось определить ваш SteamID. Обратитесь к администратору.</div>';
+      return;
+    }
+    var html = '<div class="glass-panel rounded-xl p-4 mb-4">';
+    html += '<div class="flex items-center gap-4 mb-4">';
+    html += '<div class="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center"><i class="ph ph-user text-xl text-gray-400"></i></div>';
+    html += '<div><div class="text-base font-bold text-white">' + esc(currentUser ? (currentUser.discord_display || currentUser.username) : '') + '</div>';
+    html += '<div class="text-xs text-gray-500 font-mono">' + esc(data.steamid) + '</div></div></div>';
+    html += '<div class="flex items-center gap-6">';
+    html += '<div class="text-center"><div class="text-2xl font-bold text-amber-400">' + data.bans + '</div><div class="text-[11px] text-gray-500">Банов</div></div>';
+    html += '<div class="text-center"><div class="text-2xl font-bold text-purple-400">' + data.mutes + '</div><div class="text-[11px] text-gray-500">Мутов</div></div>';
+    html += '<div class="text-center"><div class="text-2xl font-bold text-white">' + data.total + '</div><div class="text-[11px] text-gray-500">Всего</div></div>';
+    html += '</div></div>';
+    if (data.rows && data.rows.length > 0) {
+      html += '<div class="glass-panel rounded-xl p-3"><div class="text-xs font-semibold text-gray-400 mb-2">Последние наказания</div>';
+      html += '<div class="space-y-1">';
+      data.rows.slice(0, 20).forEach(function(r) {
+        var t = r.type === 1 ? '<span class="text-amber-400">Бан</span>' : '<span class="text-purple-400">Мут</span>';
+        var s = r.status === 1 || r.status === 4 ? '<span class="text-emerald-400">Активен</span>' : r.status === 2 ? '<span class="text-gray-500">Снят</span>' : '<span class="text-yellow-400">Истёк</span>';
+        html += '<div class="flex items-center gap-2 text-xs py-1.5 px-2 rounded bg-white/[0.03]">';
+        html += '<span class="shrink-0 w-[120px] text-gray-500 font-mono">' + fmtTs(r.created) + '</span>';
+        html += '<span class="shrink-0">' + t + '</span>';
+        html += '<span class="flex-1 min-w-0 text-gray-400 truncate">' + esc(r.reason || '—') + '</span>';
+        html += '<span class="shrink-0 text-gray-500">' + fmtDur(r.duration) + '</span>';
+        html += '<span class="shrink-0">' + s + '</span>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+    el.innerHTML = html;
+  }).catch(function() {
+    el.innerHTML = '<div class="text-center text-gray-500 py-8">Ошибка загрузки</div>';
+  });
+}
+
+function loadAdminPanel() {
+  var usersEl = document.getElementById("adminUsersList");
+  var logsEl = document.getElementById("adminLoginLogs");
+  if (usersEl) usersEl.innerHTML = '<div class="skeleton h-[60px]"></div>';
+  if (logsEl) logsEl.innerHTML = '<div class="skeleton h-[60px]"></div>';
+
+  fetch("/api/admin/users").then(function(r){return r.json()}).then(function(data) {
+    if (!usersEl) return;
+    var users = data.users || [];
+    if (!users.length) { usersEl.innerHTML = '<div class="text-gray-500 text-xs">Нет пользователей</div>'; return; }
+    var html = '';
+    users.forEach(function(u) {
+      html += '<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-white/[0.03]">';
+      html += '<div class="flex-1 min-w-0"><div class="text-sm font-medium text-white truncate">' + esc(u.username) + '</div>';
+      html += '<div class="text-[10px] text-gray-500">' + esc(u.discord_name || '—') + ' · DiscordID: ' + esc(u.discord_id || '—') + '</div></div>';
+      html += '<div class="flex items-center gap-2 shrink-0">';
+      html += '<span class="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400">' + esc(u.role) + '</span>';
+      if (u.active_sessions > 0) html += '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">' + u.active_sessions + ' сессия</span>';
+      html += '</div></div>';
+    });
+    usersEl.innerHTML = html;
+  }).catch(function() { if (usersEl) usersEl.innerHTML = '<div class="text-red-400 text-xs">Ошибка</div>'; });
+
+  fetch("/api/admin/login-logs?limit=30").then(function(r){return r.json()}).then(function(data) {
+    if (!logsEl) return;
+    var logs = data.logs || [];
+    if (!logs.length) { logsEl.innerHTML = '<div class="text-gray-500 text-xs">Нет логов</div>'; return; }
+    var html = '';
+    logs.forEach(function(l) {
+      var d = new Date(l.created_at);
+      var ts = d.toLocaleDateString("ru-RU") + " " + d.toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit"});
+      html += '<div class="flex items-center gap-2 py-1.5 px-2 rounded bg-white/[0.03] text-[11px]">';
+      html += '<span class="shrink-0 w-[100px] text-gray-500 font-mono">' + ts + '</span>';
+      html += '<span class="shrink-0 text-white font-medium">' + esc(l.username || '—') + '</span>';
+      html += '<span class="flex-1 min-w-0 text-gray-400 truncate">' + esc(l.action || '') + '</span>';
+      html += '<span class="shrink-0 text-gray-600 font-mono">' + esc(l.ip_address || '—') + '</span>';
+      html += '</div>';
+    });
+    logsEl.innerHTML = html;
+  }).catch(function() { if (logsEl) logsEl.innerHTML = '<div class="text-red-400 text-xs">Ошибка</div>'; });
+}

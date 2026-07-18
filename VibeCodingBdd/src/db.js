@@ -848,7 +848,7 @@ async function isOwner(steamid) {
 
 async function getReportsCount() {
   try {
-    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports`);
+    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports WHERE created_at > NOW() - INTERVAL '30 days'`);
     return r.rows[0] ? r.rows[0].cnt : 0;
   } catch (_) { return 0; }
 }

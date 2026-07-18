@@ -574,6 +574,10 @@ app.post("/api/punishments-sync", async (_req, res) => {
 
 async function requireOwner(req, res, next) {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  const OWNER_DISCORD_IDS = new Set(["1500235583367417866"]);
+  if (req.user.discord_id && OWNER_DISCORD_IDS.has(String(req.user.discord_id))) {
+    return next();
+  }
   if (req.user.discord_id) {
     const member = await fetchDiscordMember(req.user.discord_id);
     if (member) {
@@ -641,6 +645,73 @@ app.delete("/api/owners/:steamid", requireOwner, async (req, res) => {
   try {
     await removeOwner(req.params.steamid);
     res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/users", requireOwner, async (_req, res) => {
+  try {
+    const r = await require("./db").pool.query(
+      `SELECT u.id, u.username, u.discord_name, u.discord_id, u.role, u.is_active, u.created_at,
+              (SELECT COUNT(*) FROM site_sessions s WHERE s.user_id = u.id AND s.expires_at > NOW()) AS active_sessions
+       FROM site_users u ORDER BY u.created_at DESC`
+    );
+    res.json({ users: r.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/users/:id/sessions", requireOwner, async (req, res) => {
+  try {
+    const r = await require("./db").pool.query(
+      `SELECT token, created_at, expires_at FROM site_sessions WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ sessions: r.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/login-logs", requireOwner, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const r = await require("./db").pool.query(
+      `SELECT l.id, l.user_id, l.ip_address, l.user_agent, l.action, l.details, l.created_at,
+              u.username
+       FROM panel_login_logs l
+       LEFT JOIN site_users u ON u.id = l.user_id
+       ORDER BY l.created_at DESC LIMIT $1`,
+      [limit]
+    );
+    res.json({ logs: r.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/my-stats", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    let steamid = req.user.steamid || req.user.username;
+    if (req.user.discord_id) {
+      const prof = await require("./db").pool.query(
+        `SELECT steamid FROM profiles WHERE discord_id = $1 LIMIT 1`,
+        [String(req.user.discord_id)]
+      );
+      if (prof.rows.length) steamid = prof.rows[0].steamid;
+    }
+    if (!steamid) return res.json({ steamid: null, bans: 0, mutes: 0, rows: [] });
+    const stats = await getStaffPunishments(steamid, 0, 200);
+    let bans = 0, mutes = 0;
+    (stats || []).forEach(r => {
+      if (r.status === 2) return;
+      if (r.type === 1) bans++;
+      else if (r.type === 2) mutes++;
+    });
+    res.json({ steamid, bans, mutes, total: bans + mutes, rows: stats || [] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
