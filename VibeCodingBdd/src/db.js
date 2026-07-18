@@ -192,6 +192,27 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tab_access (
+      id SERIAL PRIMARY KEY,
+      tab_id TEXT NOT NULL UNIQUE,
+      min_role_rank INT NOT NULL DEFAULT 7,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  const defaultTabs = [
+    { id: 'online', min: 7 }, { id: 'all', min: 7 }, { id: 'stats', min: 7 },
+    { id: 'logs', min: 9 }, { id: 'mystats', min: 7 }, { id: 'adminpanel', min: 15 }
+  ];
+  for (const t of defaultTabs) {
+    await pool.query(
+      `INSERT INTO tab_access (tab_id, min_role_rank, enabled) VALUES ($1, $2, TRUE) ON CONFLICT (tab_id) DO NOTHING`,
+      [t.id, t.min]
+    );
+  }
   await pool.query(`INSERT INTO owners (steamid, added_by) VALUES ($1, 'seed') ON CONFLICT (steamid) DO NOTHING`, ['76561198675051863']);
 }
 
@@ -850,8 +871,20 @@ async function isOwner(steamid) {
 
 async function getReportsCount() {
   try {
-    const r = await pool.query(`SELECT COUNT(*)::int AS cnt FROM reports WHERE created_at > NOW() - INTERVAL '24 hours'`);
-    return r.rows[0] ? r.rows[0].cnt : 0;
+    const res = await fetch('https://fearproject.ru/api/reports/recent', {
+      headers: { 'User-Agent': 'FearSearchBot/1.0' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const reports = Array.isArray(data) ? data : (data.reports || data.data || []);
+    const now = Date.now();
+    const dayAgo = now - 24 * 60 * 60 * 1000;
+    const recent = reports.filter(r => {
+      const ts = new Date(r.created_at).getTime();
+      return ts >= dayAgo;
+    });
+    return recent.length;
   } catch (_) { return 0; }
 }
 
@@ -884,6 +917,23 @@ async function getStaffStatsForPeriod(dateFrom, dateTo) {
     GROUP BY p.admin_steamid, p.admin, a.group_display_name, a.group_name, a.immunity, p.type, p.status
   `, params);
   return result.rows;
+}
+
+async function getTabAccess() {
+  try {
+    const r = await pool.query(`SELECT tab_id, min_role_rank, enabled FROM tab_access ORDER BY id`);
+    return r.rows;
+  } catch (_) { return []; }
+}
+
+async function updateTabAccess(tabId, minRoleRank, enabled) {
+  try {
+    await pool.query(
+      `UPDATE tab_access SET min_role_rank = $1, enabled = $2, updated_at = NOW() WHERE tab_id = $3`,
+      [minRoleRank, enabled, tabId]
+    );
+    return true;
+  } catch (_) { return false; }
 }
 
 module.exports = {
@@ -923,5 +973,7 @@ module.exports = {
   addOwner,
   removeOwner,
   isOwner,
-  getReportsCount
+  getReportsCount,
+  getTabAccess,
+  updateTabAccess
 };

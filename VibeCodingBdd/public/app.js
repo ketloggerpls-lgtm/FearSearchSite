@@ -23,9 +23,22 @@ function loadProfile(user) {
     if (pPlaceholder) pPlaceholder.classList.remove("hidden");
     if (pAvatar) pAvatar.classList.add("hidden");
   }
-  if (user.discord_id === "1500235583367417866" || user.role === "owner") {
+  var isOwner = user.discord_id === "1500235583367417866" || user.role === "owner";
+  if (isOwner) {
     document.querySelectorAll(".tab-owner-only").forEach(function(el) { el.style.display = ""; });
   }
+  fetch("/api/tab-access").then(function(r){return r.json()}).then(function(data) {
+    var userRank = user.discord_role_rank || 0;
+    (data.tabs || []).forEach(function(t) {
+      var btn = document.querySelector('.sidebar-nav-btn[data-tab="' + t.tab_id + '"]');
+      if (!btn) return;
+      if (!t.enabled || userRank < t.min_role_rank) {
+        btn.style.display = 'none';
+      } else {
+        btn.style.display = '';
+      }
+    });
+  }).catch(function(){});
 }
 
 function loadDashboardStats() {
@@ -587,12 +600,12 @@ function openAdminProfile(steamid, name) {
       + '<div class="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-3"><i class="ph ph-user text-2xl text-gray-400"></i></div>'
       + '<div class="text-base font-bold text-white mb-0.5">' + esc(name || steamid) + '</div>'
       + '<div class="text-xs text-gray-500 font-mono mb-3">' + esc(steamid) + '</div>'
-      + '<div class="flex items-center justify-center gap-4 mb-4">'
-      + '<div class="text-center"><div class="text-lg font-bold text-amber-400">' + bans + '</div><div class="text-[10px] text-gray-500">Баны</div></div>'
-      + '<div class="w-px h-8 bg-white/10"></div>'
-      + '<div class="text-center"><div class="text-lg font-bold text-purple-400">' + mutes + '</div><div class="text-[10px] text-gray-500">Муты</div></div>'
-      + '<div class="w-px h-8 bg-white/10"></div>'
-      + '<div class="text-center"><div class="text-lg font-bold text-white">' + (bans + mutes) + '</div><div class="text-[10px] text-gray-500">Всего</div></div>'
+      + '<div class="text-sm text-gray-300 mb-4 flex items-center justify-center gap-1 flex-wrap">'
+      + '<span><span class="text-amber-400 font-semibold">' + bans + '</span> <span class="text-gray-500">банов</span></span>'
+      + '<span class="text-gray-700">·</span>'
+      + '<span><span class="text-purple-400 font-semibold">' + mutes + '</span> <span class="text-gray-500">мутов</span></span>'
+      + '<span class="text-gray-700">·</span>'
+      + '<span><span class="text-white font-semibold">' + (bans + mutes) + '</span> <span class="text-gray-500">всего</span></span>'
       + '</div>'
       + '<div class="space-y-2">'
       + '<a href="' + fearUrl + '" target="_blank" class="block w-full py-2 rounded-lg bg-[#5865F2]/15 hover:bg-[#5865F2]/25 text-[#818cf8] text-xs font-semibold transition-colors text-center">Fear Профиль</a>'
@@ -682,6 +695,7 @@ document.querySelectorAll(".sidebar-nav-btn").forEach(function(btn) {
     if (btn.dataset.tab === "adminpanel") {
       loadAdminPanel();
       loadOwnerSystem();
+      loadTabAccess();
     }
   });
 });
@@ -1029,4 +1043,52 @@ function toggleHideStaff(steamid, shouldHide) {
 var hideStatsBtn = document.getElementById("hideStatsBtn");
 if (hideStatsBtn) {
   hideStatsBtn.addEventListener("click", function() { openHideStatsModal(); });
+}
+
+// ===================== TAB ACCESS CONTROL =====================
+var TAB_NAMES = {
+  online: 'Online', all: 'Все админы', stats: 'Статистика',
+  logs: 'Логи', mystats: 'Мои наказания', adminpanel: 'Админка'
+};
+var ROLE_RANKS = [
+  { rank: 7, label: 'Мл. Модератор' }, { rank: 8, label: 'Модератор' },
+  { rank: 9, label: 'Ст. Модератор' }, { rank: 10, label: 'Спец. Администратор' },
+  { rank: 11, label: 'Ст. Администратор' }, { rank: 12, label: 'Гл. Администратор' },
+  { rank: 13, label: 'Разработчик' }, { rank: 14, label: 'Куратор' }, { rank: 15, label: 'Владелец' }
+];
+
+function loadTabAccess() {
+  var el = document.getElementById("tabAccessList");
+  if (!el) return;
+  fetch("/api/tab-access").then(function(r){return r.json()}).then(function(data) {
+    var html = '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">';
+    (data.tabs || []).forEach(function(t) {
+      var name = TAB_NAMES[t.tab_id] || t.tab_id;
+      var selectedRank = ROLE_RANKS.find(function(r) { return r.rank === t.min_role_rank; });
+      var selectedLabel = selectedRank ? selectedRank.label : 'Ранг ' + t.min_role_rank;
+      html += '<div class="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5">';
+      html += '<span class="text-sm text-white font-medium">' + name + '</span>';
+      html += '<div class="flex items-center gap-2">';
+      html += '<select onchange="updateTabAccessRank(\'' + t.tab_id + '\', this.value)" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">';
+      ROLE_RANKS.forEach(function(r) {
+        html += '<option value="' + r.rank + '"' + (r.rank === t.min_role_rank ? ' selected' : '') + '>' + r.label + '</option>';
+      });
+      html += '</select>';
+      html += '<button onclick="toggleTabAccess(\'' + t.tab_id + '\', ' + t.min_role_rank + ', ' + !t.enabled + ')" class="w-10 h-5 rounded-full transition-colors ' + (t.enabled ? 'bg-emerald-500/30' : 'bg-white/10') + ' relative">';
+      html += '<div class="w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all ' + (t.enabled ? 'left-5' : 'left-0.5') + '"></div>';
+      html += '</button></div></div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }).catch(function() { el.innerHTML = '<div class="text-gray-500 text-xs">Ошибка загрузки</div>'; });
+}
+
+function toggleTabAccess(tabId, minRank, enabled) {
+  fetch("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: minRank, enabled: enabled }) })
+    .then(function(r) { return r.json(); }).then(function() { loadTabAccess(); }).catch(function() {});
+}
+
+function updateTabAccessRank(tabId, newRank) {
+  fetch("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: parseInt(newRank), enabled: true }) })
+    .then(function(r) { return r.json(); }).then(function() { loadTabAccess(); }).catch(function() {});
 }

@@ -13,7 +13,7 @@ const PAGE_LIMIT = 100;
 const REQUEST_DELAY_MS = Number(process.env.STAFF_SYNC_REQUEST_DELAY_MS || '8000');
 const CONCURRENCY = 1;
 
-const EXCLUDED_ROLE_KEYS = new Set(['admin', 'admin+', 'ADMIN', 'ADMIN+', 'UNDEFINED']);
+const EXCLUDED_ROLE_KEYS = new Set(['admin', 'admin+', 'ADMIN', 'ADMIN+', 'UNDEFINED', 'Медиа', 'MEDIA']);
 
 function isStaffAdmin(admin) {
   const groupDisplay = String(admin?.group_display_name || '').trim();

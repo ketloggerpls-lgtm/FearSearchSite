@@ -32,7 +32,9 @@ const {
   getOwners,
   addOwner,
   removeOwner,
-  getReportsCount
+  getReportsCount,
+  getTabAccess,
+  updateTabAccess
 } = require("./db");
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const logger = require("./logger");
@@ -266,6 +268,7 @@ app.get("/api/auth/me", async (req, res) => {
         user.discord_display = member.nick || member.user.global_name || member.user.username;
         var resolved = resolveDiscordRole(member.roles || []);
         user.discord_role = resolved ? resolved.label : null;
+        user.discord_role_rank = resolved ? resolved.rank : 0;
       }
     } catch (_) {}
   }
@@ -875,6 +878,26 @@ app.post("/api/owner/force-refresh", requireOwner, async (req, res) => {
   try {
     await refreshAllData();
     res.json({ ok: true, message: "Данные обновлены" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/tab-access", async (req, res) => {
+  try {
+    const tabs = await getTabAccess();
+    res.json({ tabs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/tab-access", requireOwner, async (req, res) => {
+  try {
+    const { tabId, minRoleRank, enabled } = req.body;
+    if (!tabId) return res.status(400).json({ error: "tabId required" });
+    await updateTabAccess(tabId, minRoleRank ?? 7, enabled ?? true);
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
