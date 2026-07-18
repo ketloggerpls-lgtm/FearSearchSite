@@ -50,57 +50,46 @@
             </div>
         </div>
 
-        <!-- Period selector -->
         <div class="flex items-center gap-1.5 mb-4 flex-wrap">
-            <button class="period-btn active px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-month">\u042d\u0442\u043e\u0442 \u043c\u0435\u0441\u044f\u0446</button>
-            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-month">\u041f\u0440\u043e\u0448\u043b\u044b\u0439 \u043c\u0435\u0441\u044f\u0446</button>
-            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">\u042d\u0442\u0430 \u043d\u0435\u0434\u0435\u043b\u044f (\u041f\u043d\u2013\u0412\u0441)</button>
-            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-week">\u041f\u0440\u043e\u0448\u043b\u0430\u044f \u043d\u0435\u0434\u0435\u043b\u044f</button>
-            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="all">\u0412\u0441\u0435 \u0432\u0440\u0435\u043c\u044f</button>
+            <button class="period-btn active px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-month">Этот месяц</button>
+            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-month">Прошлый месяц</button>
+            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">Эта неделя (Пн–Вс)</button>
+            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-week">Прошлая неделя</button>
+            <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="all">Все время</button>
         </div>
 
-        <!-- View toggle -->
         <div class="flex items-center gap-2 mb-4">
             <div class="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10">
                 <button id="viewGrouped" class="view-btn active px-3 py-1.5 rounded-md text-xs font-medium border border-transparent">
-                    <i class="ph ph-users mr-1"></i>\u041f\u043e \u0440\u043e\u043b\u044f\u043c
+                    <i class="ph ph-users mr-1"></i>По ролям
                 </button>
                 <button id="viewTop" class="view-btn px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 border border-transparent">
-                    <i class="ph ph-trophy mr-1"></i>\u0422\u043e\u043f
+                    <i class="ph ph-trophy mr-1"></i>Топ
                 </button>
             </div>
         </div>
 
-        <div id="loading" class="text-center text-gray-500 py-12">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</div>
+        <div id="loading" class="text-center text-gray-500 py-12">Загрузка...</div>
         <div id="content" class="hidden space-y-6"></div>
-        <div id="empty" class="hidden text-center text-gray-500 py-12">\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u0437\u0430 \u044d\u0442\u043e\u0442 \u043f\u0435\u0440\u0438\u043e\u0434</div>
+        <div id="empty" class="hidden text-center text-gray-500 py-12">Нет данных за этот период</div>
     </div>
     <script>
         fetch("/api/auth/me").then(function(r) {
           if (r.status === 401) window.location.href = "/login";
         }).catch(function() {});
 
-        function esc(s) { return String(s||"").replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
+        function esc(s) { return String(s||"").replace(/[&<>"']/g, function(c) { return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]; }); }
 
         var ROLE_COLORS = {
-            "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446": "#ff3c3c",
-            "\u041a\u0443\u0440\u0430\u0442\u043e\u0440": "#ff8c00",
-            "\u0420\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a": "#3a84c8",
-            "\u0413\u043b. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#f95dff",
-            "\u0421\u0442. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#22c7aa",
-            "\u0421\u043f\u0435\u0446. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#d39ae1",
-            "\u0421\u0442. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#8c56f0",
-            "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#e75288",
-            "\u041c\u043b. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440": "#e2bb6d",
-            "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 Discord": "#bd458c",
-            "\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 \u043c\u0435\u0441\u044f\u0446\u0430": "#da5f23",
-            "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440": "#ebc04e",
-            "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 +": "#ffcc00",
-            "\u0421\u0442\u0430\u0444\u0444": "#eab308"
+            "Владелец": "#ff3c3c", "Куратор": "#ff8c00", "Разработчик": "#3a84c8",
+            "Гл. Администратор": "#f95dff", "Ст. Администратор": "#22c7aa",
+            "Спец. Администратор": "#d39ae1", "Ст. Модератор": "#8c56f0",
+            "Модератор": "#e75288", "Мл. Модератор": "#e2bb6d",
+            "Модератор Discord": "#bd458c", "Модератор месяца": "#da5f23",
+            "Администратор": "#ebc04e", "Администратор +": "#ffcc00", "Стафф": "#eab308"
         };
         function getRoleColor(role) { return ROLE_COLORS[role] || "#6b7280"; }
 
-        var ROLE_ORDER = ["\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446","\u041a\u0443\u0440\u0430\u0442\u043e\u0440","\u0420\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a","\u0413\u043b. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440","\u0421\u0442. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440","\u0421\u043f\u0435\u0446. \u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440","\u0421\u0442. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440","\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440","\u041c\u043b. \u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440","\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 Discord","\u041c\u043e\u0434\u0435\u0440\u0430\u0442\u043e\u0440 \u043c\u0435\u0441\u044f\u0446\u0430","\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440","\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 +","\u0421\u0442\u0430\u0444\u0444"];
         var cachedData = null;
         var currentView = "grouped";
         var currentPeriod = "this-month";
@@ -108,7 +97,7 @@
         function copyToClipboard(text, el) {
             navigator.clipboard.writeText(text).then(function() {
                 var orig = el.textContent;
-                el.textContent = "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e!";
+                el.textContent = "Скопировано!";
                 el.style.color = "#22c55e";
                 setTimeout(function() { el.textContent = orig; el.style.color = ""; }, 1000);
             });
@@ -119,64 +108,48 @@
             var from, to;
             switch(period) {
                 case "this-month":
-                    from = new Date(now.getFullYear(), now.getMonth(), 1);
-                    to = now;
-                    break;
+                    from = new Date(now.getFullYear(), now.getMonth(), 1); to = now; break;
                 case "last-month":
                     from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                    to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-                    break;
+                    to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59); break;
                 case "this-week": {
-                    var day = now.getDay();
-                    var diff = day === 0 ? 6 : day - 1;
+                    var day = now.getDay(); var diff = day === 0 ? 6 : day - 1;
                     from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
-                    from.setHours(0, 0, 0, 0);
-                    to = now;
-                    break;
+                    from.setHours(0, 0, 0, 0); to = now; break;
                 }
                 case "last-week": {
-                    var day2 = now.getDay();
-                    var diff2 = day2 === 0 ? 6 : day2 - 1;
+                    var day2 = now.getDay(); var diff2 = day2 === 0 ? 6 : day2 - 1;
                     from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff2 - 7);
                     from.setHours(0, 0, 0, 0);
-                    to = new Date(from.getTime() + 7 * 86400000 - 1);
-                    break;
+                    to = new Date(from.getTime() + 7 * 86400000 - 1); break;
                 }
-                case "all":
-                    from = new Date(2020, 0, 1);
-                    to = now;
-                    break;
-                default:
-                    from = new Date(now.getFullYear(), now.getMonth(), 1);
-                    to = now;
+                case "all": from = new Date(2020, 0, 1); to = now; break;
+                default: from = new Date(now.getFullYear(), now.getMonth(), 1); to = now;
             }
             return { from: from.toISOString(), to: to.toISOString() };
         }
 
         function formatPeriodLabel(period) {
             var p = getPeriodParams(period);
-            var from = new Date(p.from).toLocaleDateString("ru-RU");
-            var to = new Date(p.to).toLocaleDateString("ru-RU");
-            return from + " \u2014 " + to;
+            return new Date(p.from).toLocaleDateString("ru-RU") + " — " + new Date(p.to).toLocaleDateString("ru-RU");
         }
 
         function renderRow(s, idx) {
-            var steamUrl = "https://steamcommunity.com/profiles/" + s.steamid;
             var fearUrl = "https://fearproject.ru/profile/" + s.steamid;
             var color = getRoleColor(s.role_label);
             return '<div class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors">'
                 + '<span class="text-gray-600 text-sm font-mono w-5 text-right">' + idx + ".</span>"
                 + '<div class="flex-1 min-w-0">'
                 + '<span class="text-white font-medium text-sm">' + esc(s.name || s.steamid) + "</span>"
-                + '<a href="' + fearUrl + '" target="_blank" class="text-gray-500 text-xs ml-2 font-mono hover:text-[#5865F2] transition-colors" title="\u041f\u0440\u043e\u0444\u0438\u043b\u044c Fear">' + esc(s.steamid) + ' <i class="ph ph-link-simple text-[10px]"></i></a>'
-                + '<span class="text-gray-700 text-xs ml-1 font-mono cursor-pointer hover:text-gray-400" onclick="copyToClipboard(\'' + s.steamid + '\', this)" title="\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c SteamID"><i class="ph ph-copy text-[11px]"></i></span>'
+                + '<a href="' + fearUrl + '" target="_blank" class="text-gray-500 text-xs ml-2 font-mono hover:text-[#5865F2] transition-colors" title="Профиль Fear">' + esc(s.steamid) + ' <i class="ph ph-link-simple text-[10px]"></i></a>'
+                + '<span class="text-gray-700 text-xs ml-1 font-mono cursor-pointer hover:text-gray-400" onclick="copyToClipboard(\'' + s.steamid + '\', this)" title="Скопировать SteamID"><i class="ph ph-copy text-[11px]"></i></span>'
                 + (s.role_label ? '<span class="text-xs ml-2 px-1.5 py-0.5 rounded" style="background:' + color + '20;color:' + color + '">' + esc(s.role_label) + '</span>' : '')
                 + "</div>"
                 + '<div class="flex items-center gap-3 text-xs shrink-0">'
-                + '<span title="\u0411\u0430\u043d\u044b"><span class="text-gray-500"><i class="ph ph-hammer"></i></span> <span class="text-amber-400 font-semibold">' + (s.bans||0) + "</span></span>"
-                + '<span title="\u041c\u0443\u0442\u044b"><span class="text-gray-500"><i class="ph ph-megaphone"></i></span> <span class="text-purple-400 font-semibold">' + (s.mutes||0) + "</span></span>"
-                + '<span title="\u0412\u0441\u0435\u0433\u043e"><span class="text-gray-500"><i class="ph ph-chart-line"></i></span> <span class="text-white font-semibold">' + (s.total||0) + "</span></span>"
-                + '<span title="\u0421\u043d\u044f\u0442\u043e"><span class="text-gray-500"><i class="ph ph-scissors"></i></span> <span class="text-gray-400 font-semibold">' + (s.removed||0) + "</span></span>"
+                + '<span title="Баны"><span class="text-gray-500"><i class="ph ph-hammer"></i></span> <span class="text-amber-400 font-semibold">' + (s.bans||0) + "</span></span>"
+                + '<span title="Муты"><span class="text-gray-500"><i class="ph ph-megaphone"></i></span> <span class="text-purple-400 font-semibold">' + (s.mutes||0) + "</span></span>"
+                + '<span title="Всего"><span class="text-gray-500"><i class="ph ph-chart-line"></i></span> <span class="text-white font-semibold">' + (s.total||0) + "</span></span>"
+                + '<span title="Снято"><span class="text-gray-500"><i class="ph ph-scissors"></i></span> <span class="text-gray-400 font-semibold">' + (s.removed||0) + "</span></span>"
                 + "</div></div>";
         }
 
@@ -184,22 +157,24 @@
             var content = document.getElementById("content");
             content.innerHTML = "";
             content.classList.remove("hidden");
-            var idx = 1;
-            var roleKeys = Object.keys(data.grouped);
-            roleKeys.sort(function(a,b) {
-                var ia = ROLE_ORDER.indexOf(a); if(ia<0) ia=99;
-                var ib = ROLE_ORDER.indexOf(b); if(ib<0) ib=99;
-                return ia - ib;
+
+            var groups = {};
+            (data.staff || []).forEach(function(s) {
+                var key = s.role_label || "Стафф";
+                if (!groups[key]) groups[key] = { label: key, role_order: s.role_order || 99, members: [] };
+                groups[key].members.push(s);
             });
-            roleKeys.forEach(function(roleName) {
-                var members = data.grouped[roleName];
-                var color = getRoleColor(roleName);
+
+            var sorted = Object.values(groups).sort(function(a, b) { return a.role_order - b.role_order; });
+            var idx = 1;
+            sorted.forEach(function(g) {
+                var color = getRoleColor(g.label);
                 var section = document.createElement("div");
                 var headerHtml = '<div class="role-header mb-3" style="border-color:' + color + '">'
-                    + '<h2 class="text-base font-bold" style="color:' + color + '">' + esc(roleName) + '</h2>'
-                    + '<span class="text-gray-600 text-xs">' + members.length + ' \u0447\u0435\u043b.</span></div>';
+                    + '<h2 class="text-base font-bold" style="color:' + color + '">' + esc(g.label) + '</h2>'
+                    + '<span class="text-gray-600 text-xs">' + g.members.length + ' чел.</span></div>';
                 var listHtml = '<div class="space-y-1">';
-                members.forEach(function(s) {
+                g.members.forEach(function(s) {
                     listHtml += renderRow(s, idx);
                     idx++;
                 });
@@ -215,9 +190,7 @@
             content.classList.remove("hidden");
             var all = (data.staff || []).slice().sort(function(a,b) { return (b.total||0) - (a.total||0); });
             var listHtml = '<div class="space-y-1">';
-            all.forEach(function(s, i) {
-                listHtml += renderRow(s, i + 1);
-            });
+            all.forEach(function(s, i) { listHtml += renderRow(s, i + 1); });
             listHtml += "</div>";
             content.innerHTML = listHtml;
         }
@@ -241,12 +214,11 @@
                     document.getElementById("empty").classList.remove("hidden");
                     return;
                 }
-                var totalCount = data.staff ? data.staff.length : 0;
-                document.getElementById("totalText").textContent = totalCount + " \u0447\u0435\u043b.";
+                document.getElementById("totalText").textContent = (data.staff ? data.staff.length : 0) + " чел.";
                 cachedData = data;
                 render();
             }).catch(function(err) {
-                document.getElementById("loading").textContent = "\u041e\u0448\u0438\u0431\u043a\u0430: " + err.message;
+                document.getElementById("loading").textContent = "Ошибка: " + err.message;
             });
         }
 
@@ -260,16 +232,12 @@
         });
 
         document.getElementById("viewGrouped").addEventListener("click", function() {
-            currentView = "grouped";
-            this.classList.add("active");
-            document.getElementById("viewTop").classList.remove("active");
-            render();
+            currentView = "grouped"; this.classList.add("active");
+            document.getElementById("viewTop").classList.remove("active"); render();
         });
         document.getElementById("viewTop").addEventListener("click", function() {
-            currentView = "top";
-            this.classList.add("active");
-            document.getElementById("viewGrouped").classList.remove("active");
-            render();
+            currentView = "top"; this.classList.add("active");
+            document.getElementById("viewGrouped").classList.remove("active"); render();
         });
         document.getElementById("refreshBtn").addEventListener("click", loadStats);
         loadStats();
