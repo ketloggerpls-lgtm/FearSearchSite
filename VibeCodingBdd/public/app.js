@@ -1063,13 +1063,13 @@ function loadTabAccess() {
   fetch("/api/tab-access").then(function(r){return r.json()}).then(function(data) {
     var html = '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">';
     (data.tabs || []).forEach(function(t) {
-      var name = TAB_NAMES[t.tab_id] || t.tab_id;
+      var name = TAB_NAMES[t.tab_id] || esc(String(t.tab_id));
       var selectedRank = ROLE_RANKS.find(function(r) { return r.rank === t.min_role_rank; });
       var selectedLabel = selectedRank ? selectedRank.label : 'Ранг ' + t.min_role_rank;
       html += '<div class="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5">';
       html += '<span class="text-sm text-white font-medium">' + name + '</span>';
       html += '<div class="flex items-center gap-2">';
-      html += '<select onchange="updateTabAccessRank(\'' + t.tab_id + '\', this.value)" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">';
+      html += '<select onchange="updateTabAccessRank(\'' + esc(String(t.tab_id)) + '\', this.value)" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300 outline-none">';
       ROLE_RANKS.forEach(function(r) {
         html += '<option value="' + r.rank + '"' + (r.rank === t.min_role_rank ? ' selected' : '') + '>' + r.label + '</option>';
       });

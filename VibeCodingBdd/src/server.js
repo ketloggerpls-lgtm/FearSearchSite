@@ -151,19 +151,19 @@ app.all("/checker/api/*", (req, res, next) => {
   if (req.method === "POST" && req.headers["content-type"]?.includes("multipart")) {
     const chunks = [];
     req.on("data", chunk => chunks.push(chunk));
-    req.on("end", () => {
+      req.on("end", () => {
       req.body = Buffer.concat(chunks);
       handleCheckerApi(req, res, req.originalUrl).catch(err => {
         logger.error("Checker API error", { error: err.message });
         res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ detail: err.message }));
+        res.end(JSON.stringify({ detail: "Internal error" }));
       });
     });
   } else {
     handleCheckerApi(req, res, req.originalUrl).catch(err => {
       logger.error("Checker API error", { error: err.message });
       res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ detail: err.message }));
+      res.end(JSON.stringify({ detail: "Internal error" }));
     });
   }
 });
@@ -203,23 +203,56 @@ async function authMiddleware(req, res, next) {
   next();
 }
 
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 app.use(authMiddleware);
+
+const rateLimitStore = new Map();
+function rateLimit(key, maxAttempts, windowMs) {
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+  if (entry && now - entry.start < windowMs) {
+    if (entry.count >= maxAttempts) return false;
+    entry.count++;
+  } else {
+    rateLimitStore.set(key, { start: now, count: 1 });
+  }
+  return true;
+}
+setInterval(() => { const now = Date.now(); for (const [k, v] of rateLimitStore) { if (now - v.start > 120000) rateLimitStore.delete(k); } }, 120000);
+
+function sanitizeError(msg) { return "Ошибка сервера"; }
+
+function validateUsername(u) { return typeof u === "string" && u.trim().length >= 3 && u.trim().length <= 32 && /^[a-zA-Z0-9_\-]+$/.test(u.trim()); }
+function validatePassword(p) { return typeof p === "string" && p.length >= 6 && p.length <= 128; }
 
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "Username and password required" });
-    const result = await loginSiteUser(username, password);
-    if (!result) return res.status(401).json({ error: "Invalid credentials" });
+    if (!username || !password) return res.status(400).json({ error: "Заполните все поля" });
+    if (!validateUsername(username)) return res.status(400).json({ error: "Некорректный логин (3-32 символа, латиница, цифры, _ -)" });
+    if (!validatePassword(password)) return res.status(400).json({ error: "Некорректный пароль (6-128 символов)" });
+    const ip = req.ip || req.connection.remoteAddress;
+    const rlKey = "login:" + ip;
+    if (!rateLimit(rlKey, 10, 60000)) return res.status(429).json({ error: "Слишком много попыток. Подождите минуту" });
+    const result = await loginSiteUser(username.trim(), password);
+    if (!result) return res.status(401).json({ error: "Неверный логин или пароль" });
     res.cookie("session_token", result.token, {
       httpOnly: true,
+      secure: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: "lax"
     });
     res.json({ ok: true, user: result.user });
   } catch (error) {
     logger.error("Login failed", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: sanitizeError() });
   }
 });
 
@@ -227,19 +260,24 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const { username, password, discord_id } = req.body;
     if (!username || !password || !discord_id) return res.status(400).json({ error: "Логин, пароль и Discord ID обязательны" });
+    if (!validateUsername(username)) return res.status(400).json({ error: "Некорректный логин (3-32 символа, латиница, цифры, _ -)" });
+    if (!validatePassword(password)) return res.status(400).json({ error: "Пароль должен быть 6-128 символов" });
     if (!/^\d{17,20}$/.test(discord_id)) return res.status(400).json({ error: "Некорректный Discord ID" });
+    const ip = req.ip || req.connection.remoteAddress;
+    const rlKey = "register:" + ip;
+    if (!rateLimit(rlKey, 5, 300000)) return res.status(429).json({ error: "Слишком много регистраций. Подождите 5 минут" });
     const memberRoles = await fetchDiscordMemberRoles(discord_id);
     if (!memberRoles) return res.status(403).json({ error: "Пользователь не найден в сервере Discord" });
     const resolved = resolveDiscordRole(memberRoles);
     if (!resolved || resolved.rank < MIN_DISCORD_ROLE_RANK) {
       return res.status(403).json({ error: "Недостаточно прав. Доступ только для мл. модератора и выше" });
     }
-    const user = await createSiteUser(username, password, null, discord_id, resolved.label);
+    const user = await createSiteUser(username.trim(), password, null, discord_id, resolved.label);
     res.json({ ok: true, user });
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Логин уже занят" });
     logger.error("Register failed", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: sanitizeError() });
   }
 });
 
@@ -270,7 +308,7 @@ app.get("/api/auth/me", async (req, res) => {
         user.discord_role = resolved ? resolved.label : null;
         user.discord_role_rank = resolved ? resolved.rank : 0;
       }
-    } catch (_) {}
+    } catch (e) { logger.error("Discord fetch failed in /api/auth/me", { error: e.message, discord_id: req.user.discord_id }); }
   }
   res.json({ user });
 });
@@ -381,7 +419,7 @@ app.get("/api/staff-stats", async (req, res) => {
     });
   } catch (error) {
     logger.error("Failed to get staff stats", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -552,15 +590,21 @@ app.get("/api/admins", async (req, res) => {
     res.json({ rows, total, limit, offset });
   } catch (error) {
     logger.error("Failed to get admins", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 app.get("/api/refresh-status", (_req, res) => {
-  res.json({
-    refreshInProgress,
-    lastRefreshInfo
-  });
+  const safeInfo = lastRefreshInfo ? {
+    runId: lastRefreshInfo.runId,
+    startedAt: lastRefreshInfo.startedAt,
+    finishedAt: lastRefreshInfo.finishedAt,
+    adminsTotal: lastRefreshInfo.adminsTotal,
+    profilesOk: lastRefreshInfo.profilesOk,
+    profilesFailed: lastRefreshInfo.profilesFailed,
+    hasError: !!lastRefreshInfo.errorText
+  } : null;
+  res.json({ refreshInProgress, lastRefreshInfo: safeInfo });
 });
 
 app.post("/api/refresh", async (_req, res) => {
@@ -607,7 +651,7 @@ app.get("/api/hidden-staff", requireOwner, async (_req, res) => {
     const list = await getHiddenStaff();
     res.json({ hidden: list });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -618,7 +662,7 @@ app.post("/api/hidden-staff", requireOwner, async (req, res) => {
     await addHiddenStaff(String(steamid), req.user.username);
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -627,7 +671,7 @@ app.delete("/api/hidden-staff/:steamid", requireOwner, async (req, res) => {
     await removeHiddenStaff(req.params.steamid);
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -636,7 +680,7 @@ app.get("/api/owners", requireOwner, async (_req, res) => {
     const list = await getOwners();
     res.json({ owners: list });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -647,7 +691,7 @@ app.post("/api/owners", requireOwner, async (req, res) => {
     await addOwner(String(steamid), req.user.username);
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -656,7 +700,7 @@ app.delete("/api/owners/:steamid", requireOwner, async (req, res) => {
     await removeOwner(req.params.steamid);
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -669,7 +713,7 @@ app.get("/api/admin/users", requireOwner, async (_req, res) => {
     );
     res.json({ users: r.rows });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -681,7 +725,7 @@ app.get("/api/admin/users/:id/sessions", requireOwner, async (req, res) => {
     );
     res.json({ sessions: r.rows });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -698,7 +742,7 @@ app.get("/api/admin/login-logs", requireOwner, async (req, res) => {
     );
     res.json({ logs: r.rows });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -736,7 +780,7 @@ app.get("/api/my-stats", async (req, res) => {
     });
     res.json({ steamid, bans, mutes, total: bans + mutes, rows: filtered });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -748,7 +792,7 @@ app.get("/api/punishments/staff/stats", async (_req, res) => {
     res.json(stats);
   } catch (error) {
     logger.error("Failed to get staff punishment stats", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -761,7 +805,7 @@ app.get("/api/punishments/staff/:steamid", async (req, res) => {
     res.json(rows);
   } catch (error) {
     logger.error("Failed to get staff punishments", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -777,7 +821,7 @@ app.get("/api/punishments/logs", async (req, res) => {
     res.json({ rows, total, limit, offset });
   } catch (error) {
     logger.error("Failed to get punishment logs", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -812,7 +856,7 @@ app.get("/api/servers", async (_req, res) => {
     res.json({ servers });
   } catch (error) {
     logger.error("Failed to fetch servers", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -829,7 +873,7 @@ app.get("/api/vdf-history", async (req, res) => {
     res.json({ rows, total, page, limit });
   } catch (error) {
     logger.error("Failed to get VDF history", { error: error.message });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -879,7 +923,7 @@ app.post("/api/owner/force-refresh", requireOwner, async (req, res) => {
     await refreshAllData();
     res.json({ ok: true, message: "Данные обновлены" });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -888,7 +932,7 @@ app.get("/api/tab-access", async (req, res) => {
     const tabs = await getTabAccess();
     res.json({ tabs });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -899,7 +943,7 @@ app.post("/api/tab-access", requireOwner, async (req, res) => {
     await updateTabAccess(tabId, minRoleRank ?? 7, enabled ?? true);
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -940,10 +984,14 @@ app.get("/api/owner/system", requireOwner, async (req, res) => {
       techMode
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
-}
+
+app.use((err, _req, res, _next) => {
+  logger.error("Unhandled error", { error: err.message, stack: err.stack });
+  res.status(500).json({ error: "Internal server error" });
+});
 
 initDb()
   .then(() => {

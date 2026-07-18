@@ -41,10 +41,10 @@ function renderRows(rows) {
   rowsEl.innerHTML = rows.map((r, i) => {
     const reason = r.fear_reason || r.yooma_reason || "-";
     const fileLink = r.attachment_url
-      ? `<a href="${r.attachment_url}" target="_blank" class="text-[#a5b4fc] hover:underline text-xs">Скачать .vdf</a>`
+      ? `<a href="${escapeHtml(r.attachment_url)}" target="_blank" class="text-[#a5b4fc] hover:underline text-xs">Скачать .vdf</a>`
       : (r.filename || "-");
     const msgLink = r.message_url
-      ? `<a href="${r.message_url}" target="_blank" class="text-[#a5b4fc] hover:underline text-xs ml-1">Discord</a>`
+      ? `<a href="${escapeHtml(r.message_url)}" target="_blank" class="text-[#a5b4fc] hover:underline text-xs ml-1">Discord</a>`
       : "";
     return `<tr class="border-t border-white/5 hover:bg-white/[0.04] transition-colors">
       <td class="px-4 py-3 font-mono text-[#5865F2]">#${r.check_id || r.id}</td>

@@ -743,7 +743,11 @@ function hashPassword(password, salt) {
 
 function verifyPassword(password, hash, salt) {
   const result = crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
-  return result === hash;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(result, "hex"), Buffer.from(hash, "hex"));
+  } catch (_) {
+    return false;
+  }
 }
 
 async function findAdminByDiscordId(discordId) {
@@ -871,20 +875,22 @@ async function isOwner(steamid) {
 
 async function getReportsCount() {
   try {
+    const cookie = process.env.FEAR_COOKIE || (process.env.ACCESS_TOKEN ? `access_token=${process.env.ACCESS_TOKEN}` : null);
+    const headers = {
+      'accept': 'application/json',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'origin': 'https://fearproject.ru',
+      'referer': 'https://fearproject.ru/'
+    };
+    if (cookie) headers.cookie = cookie;
     const res = await fetch('https://fearproject.ru/api/reports/recent', {
-      headers: { 'User-Agent': 'FearSearchBot/1.0' },
-      signal: AbortSignal.timeout(8000)
+      headers,
+      signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return 0;
     const data = await res.json();
     const reports = Array.isArray(data) ? data : (data.reports || data.data || []);
-    const now = Date.now();
-    const dayAgo = now - 24 * 60 * 60 * 1000;
-    const recent = reports.filter(r => {
-      const ts = new Date(r.created_at).getTime();
-      return ts >= dayAgo;
-    });
-    return recent.length;
+    return reports.length;
   } catch (_) { return 0; }
 }
 
