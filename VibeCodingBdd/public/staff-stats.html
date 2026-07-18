@@ -245,7 +245,9 @@
                 cachedData = data;
                 render();
             }).catch(function(err) {
-                document.getElementById("loading").textContent = "Ошибка: " + err.message;
+                document.getElementById("loading").classList.add("hidden");
+                document.getElementById("empty").textContent = "Ошибка: " + err.message;
+                document.getElementById("empty").classList.remove("hidden");
             });
         }
 
