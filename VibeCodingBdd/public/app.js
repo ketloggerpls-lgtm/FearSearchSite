@@ -261,7 +261,7 @@ function clearRows() {
   totalRows = 0;
   var s = document.createElement("tr");
   s.id = "scrollSentinel";
-  s.innerHTML = '<td colspan="13" class="px-4 py-4 text-center text-gray-500 text-sm">Загрузка...</td>';
+  s.innerHTML = '<td colspan="13" class="px-4 py-4 text-center"><div class="flex items-center justify-center gap-2 text-gray-600 text-sm"><div class="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div></div></td>';
   rowsEl.appendChild(s);
   observer.observe(s);
 }

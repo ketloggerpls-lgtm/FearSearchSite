@@ -270,7 +270,7 @@ app.get("/api/staff-stats", async (req, res) => {
       "Разработчик": 10, "DEVELOPER": 10,
       "Модератор Discord": 11, "Модератор месяца": 11,
     };
-    const EXCLUDED_ROLE_KEYS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED"]);
+    const EXCLUDED_ROLE_KEYS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED", "Медиа"]);
     const EXCLUDED_STEAMIDS = new Set(["76561199077199811"]);
 
     const staffMap = {};
