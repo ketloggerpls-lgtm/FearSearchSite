@@ -11,123 +11,138 @@
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #0a0a0c; }
-        body { display: flex; flex-direction: column; }
         .glass-panel { background: rgba(22, 22, 26, 0.8); border: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(12px); }
         .grid-bg { background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 40px 40px; mask-image: radial-gradient(ellipse at 30% 20%, black 30%, transparent 70%); -webkit-mask-image: radial-gradient(ellipse at 30% 20%, black 30%, transparent 70%); }
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-        .tab-btn { transition: all 0.2s; border-bottom: 2px solid transparent; }
-        .tab-btn.active { color: #5865F2; border-bottom-color: #5865F2; }
-        .tab-btn:hover { color: #fff; }
-        .sidebar-nav-btn.active { background: rgba(88,101,242,0.15); color: #fff; }
-        .sidebar-nav-btn.active div { background: rgba(88,101,242,0.25); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        /* Layout */
+        .app-layout { display: flex; height: 100vh; padding: 12px; gap: 12px; }
+        .sidebar-left { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
+        .sidebar-right { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
+        .main-content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* Sidebar nav */
+        .sidebar-nav-btn { transition: all 0.15s; border: 1px solid transparent; }
+        .sidebar-nav-btn.active { background: rgba(88,101,242,0.12); color: #fff; border-color: rgba(88,101,242,0.25); }
+        .sidebar-nav-btn.active .nav-icon { background: rgba(88,101,242,0.2); }
+        .sidebar-nav-btn:hover:not(.active) { background: rgba(255,255,255,0.04); color: #e5e7eb; }
+
+        /* Cards */
         .admin-card { transition: all 0.25s; border: 1px solid rgba(255,255,255,0.06); }
         .admin-card:hover { border-color: rgba(88,101,242,0.3); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-        .admin-card.online { border-color: rgba(16,185,129,0.2); }
-        .admin-card.online:hover { border-color: rgba(16,185,129,0.4); box-shadow: 0 8px 24px rgba(16,185,129,0.08); }
-        .connect-btn { background: rgba(88,101,242,0.15); color: #818cf8; transition: all 0.2s; }
-        .connect-btn:hover { background: rgba(88,101,242,0.3); color: #a5b4fc; }
+        .admin-card.online { border-color: rgba(16,185,129,0.15); }
+        .admin-card.online:hover { border-color: rgba(16,185,129,0.35); box-shadow: 0 8px 24px rgba(16,185,129,0.06); }
+        .connect-btn { background: rgba(88,101,242,0.12); color: #818cf8; transition: all 0.2s; }
+        .connect-btn:hover { background: rgba(88,101,242,0.25); color: #a5b4fc; }
         .tag { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 1.4; }
-        .fade-in { animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Tabs */
         .tab-content { display: none; }
         .tab-content.active { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-        .role-header { border-left: 3px solid; padding-left: 12px; }
+
+        /* Buttons */
         .view-btn { transition: all 0.2s; }
-        .view-btn.active { background: rgba(88, 101, 242, 0.2); border-color: rgba(88, 101, 242, 0.5); color: #818cf8; }
+        .view-btn.active { background: rgba(88,101,242,0.2); border-color: rgba(88,101,242,0.5); color: #818cf8; }
         .period-btn { transition: all 0.15s; }
-        .period-btn.active { background: rgba(88, 101, 242, 0.2); color: #818cf8; border-color: rgba(88, 101, 242, 0.4); }
+        .period-btn.active { background: rgba(88,101,242,0.2); color: #818cf8; border-color: rgba(88,101,242,0.4); }
         .period-btn:not(.active) { color: #9ca3af; }
         .period-btn:hover:not(.active) { color: #e5e7eb; background: rgba(255,255,255,0.05); }
+
+        /* Scroll & Skeleton */
+        .scroll-panel { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0; }
         .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        .scroll-panel { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0; }
-        .stat-card { background: rgba(22, 22, 26, 0.8); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px 16px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.3s ease; }
+        .role-header { border-left: 3px solid; padding-left: 12px; }
     </style>
 </head>
-<body class="text-white w-full relative overflow-hidden selection:bg-[#5865F2] selection:text-white">
+<body class="text-white selection:bg-[#5865F2] selection:text-white">
+    <!-- Background -->
     <div class="fixed inset-0 pointer-events-none z-0">
         <div class="absolute inset-0 grid-bg"></div>
-        <div class="absolute -top-[300px] left-[10%] w-[500px] h-[500px] bg-[#5865F2] rounded-full blur-[150px] opacity-[0.05]"></div>
+        <div class="absolute -top-[300px] left-[10%] w-[500px] h-[500px] bg-[#5865F2] rounded-full blur-[150px] opacity-[0.04]"></div>
     </div>
 
-    <div class="relative z-10 h-full flex" style="max-width:1800px;margin:0 auto;padding:12px 12px 8px 12px;gap:12px">
+    <div class="app-layout relative z-10">
 
         <!-- ====== LEFT SIDEBAR ====== -->
-        <aside class="flex flex-col gap-3 shrink-0" style="width:220px">
+        <aside class="sidebar-left">
             <!-- Stats card -->
             <div class="glass-panel rounded-2xl p-4">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="w-10 h-10 rounded-xl bg-[#5865F2]/20 flex items-center justify-center shrink-0">
-                        <i class="ph ph-shield-check text-[#5865F2] text-lg"></i>
+                <div class="flex items-center gap-2.5 mb-4">
+                    <div class="w-9 h-9 rounded-xl bg-[#5865F2]/20 flex items-center justify-center shrink-0">
+                        <i class="ph ph-shield-check text-[#5865F2]"></i>
                     </div>
-                    <div>
-                        <div class="text-sm font-bold text-white leading-tight">Fear Staff</div>
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold text-white leading-tight truncate">Fear Staff</div>
                         <div class="text-[10px] text-gray-500 leading-tight mt-0.5">Sync Dashboard</div>
                     </div>
                 </div>
-                <div class="space-y-3">
+                <div class="space-y-2.5">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2">
-                            <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+                            <div class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></div>
                             <span class="text-xs text-gray-400">Админов</span>
                         </div>
-                        <span id="statAdmins" class="text-sm font-bold text-emerald-400">—</span>
+                        <span id="statAdmins" class="text-sm font-bold text-emerald-400 tabular-nums">—</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2">
-                            <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                            <div class="w-2 h-2 rounded-full bg-blue-400 shrink-0"></div>
                             <span class="text-xs text-gray-400">Игроков</span>
                         </div>
-                        <span id="statPlayers" class="text-sm font-bold text-blue-400">—</span>
+                        <span id="statPlayers" class="text-sm font-bold text-blue-400 tabular-nums">—</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2">
-                            <div class="w-2 h-2 rounded-full bg-red-400"></div>
+                            <div class="w-2 h-2 rounded-full bg-red-400 shrink-0"></div>
                             <span class="text-xs text-gray-400">Репорты</span>
                         </div>
-                        <span id="statReports" class="text-sm font-bold text-red-400">—</span>
+                        <span id="statReports" class="text-sm font-bold text-red-400 tabular-nums">—</span>
                     </div>
                 </div>
             </div>
 
             <!-- Navigation -->
-            <nav class="glass-panel rounded-2xl p-2 flex flex-col gap-1">
-                <button class="sidebar-nav-btn active flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all" data-tab="online">
-                    <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+            <nav class="glass-panel rounded-2xl p-1.5 flex flex-col gap-0.5">
+                <button class="sidebar-nav-btn active flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium" data-tab="online">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 transition-colors">
                         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     </div>
                     <span>Online</span>
-                    <span id="onlineCount" class="ml-auto text-[10px] text-gray-500 font-normal"></span>
+                    <span id="onlineCount" class="ml-auto text-[10px] text-gray-500 font-normal tabular-nums"></span>
                 </button>
-                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="all">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400" data-tab="all">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
                         <i class="ph ph-users text-sm"></i>
                     </div>
                     <span>Все админы</span>
-                    <span id="allCount" class="ml-auto text-[10px] text-gray-600 font-normal"></span>
+                    <span id="allCount" class="ml-auto text-[10px] text-gray-600 font-normal tabular-nums"></span>
                 </button>
-                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="stats">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400" data-tab="stats">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
                         <i class="ph ph-chart-bar text-sm"></i>
                     </div>
                     <span>Статистика</span>
                 </button>
-                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="logs">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400" data-tab="logs">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
                         <i class="ph ph-scroll text-sm"></i>
                     </div>
                     <span>Логи</span>
                 </button>
-                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all" data-tab="mystats">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400" data-tab="mystats">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
                         <i class="ph ph-user-circle text-sm"></i>
                     </div>
                     <span>Мои наказания</span>
                 </button>
-                <button class="sidebar-nav-btn flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all tab-owner-only" data-tab="adminpanel" style="display:none">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400 tab-owner-only" data-tab="adminpanel" style="display:none">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
                         <i class="ph ph-wrench text-sm"></i>
                     </div>
                     <span>Админка</span>
@@ -135,15 +150,15 @@
             </nav>
 
             <!-- External links -->
-            <div class="glass-panel rounded-2xl p-2 flex flex-col gap-1">
-                <a href="/checker/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+            <div class="glass-panel rounded-2xl p-1.5 flex flex-col gap-0.5">
+                <a href="/checker/" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
                         <i class="ph ph-shield-check text-sm"></i>
                     </div>
                     <span>Checker</span>
                 </a>
-                <a href="/vdf" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
-                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <a href="/vdf" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
                         <i class="ph ph-files text-sm"></i>
                     </div>
                     <span>VDF</span>
@@ -152,19 +167,18 @@
         </aside>
 
         <!-- ====== CENTER CONTENT ====== -->
-        <main class="flex-1 flex flex-col min-w-0 min-h-0">
-            <!-- Top bar: title + refresh -->
+        <main class="main-content">
+            <!-- Top bar -->
             <div class="flex items-center justify-between mb-3 shrink-0">
                 <h1 id="contentTitle" class="text-lg font-bold text-white flex items-center gap-2">
                     <i class="ph ph-users-three text-[#5865F2]"></i> Online
-                    <span id="contentCount" class="text-sm text-gray-500 font-normal"></span>
                 </h1>
                 <button id="refreshBtn" class="px-3 py-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors flex items-center gap-1.5">
                     <i class="ph ph-arrows-clockwise"></i> Обновить
                 </button>
             </div>
 
-            <!-- Tab: Online — cards -->
+            <!-- Tab: Online -->
             <div id="tab-online" class="tab-content active">
                 <div class="scroll-panel">
                     <div id="onlineGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -178,7 +192,7 @@
                 </div>
             </div>
 
-            <!-- Tab: All — table -->
+            <!-- Tab: All -->
             <div id="tab-all" class="tab-content">
                 <div class="glass-panel rounded-xl p-3 mb-3 shrink-0">
                     <div class="flex items-center gap-3">
@@ -279,7 +293,7 @@
                 </div>
             </div>
 
-            <!-- Tab: Admin Panel (owner only) -->
+            <!-- Tab: Admin Panel -->
             <div id="tab-adminpanel" class="tab-content">
                 <div class="scroll-panel p-4">
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -297,7 +311,7 @@
         </main>
 
         <!-- ====== RIGHT SIDEBAR ====== -->
-        <aside class="flex flex-col gap-3 shrink-0" style="width:220px">
+        <aside class="sidebar-right">
             <!-- Profile card -->
             <div class="glass-panel rounded-2xl p-4 text-center">
                 <div class="relative w-16 h-16 mx-auto mb-3">
@@ -316,8 +330,8 @@
 
             <!-- Панель управления -->
             <div class="glass-panel rounded-2xl p-4">
-                <div class="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">Панель управления</div>
-                <div class="space-y-1">
+                <div class="text-[11px] font-bold text-gray-500 mb-3 uppercase tracking-wider">Панель управления</div>
+                <div class="space-y-0.5">
                     <button class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all text-left">
                         <i class="ph ph-gear text-sm"></i> Обновить данные
                     </button>
@@ -329,6 +343,6 @@
         </aside>
     </div>
 
-    <script src="/app.js?v=9"></script>
+    <script src="/app.js?v=10"></script>
 </body>
 </html>
