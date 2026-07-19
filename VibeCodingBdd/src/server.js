@@ -11,6 +11,7 @@ const {
   listAdminsWithProfilesPaginated,
   listStaffWithServers,
   getProfilesBySteamids,
+  getAllProfiles,
   getStaffPunishments,
   getStaffPunishmentStats,
   getVdfHistory,
@@ -76,6 +77,7 @@ const DISCORD_ROLE_LABELS = {
   "1438457934253396088": "Администратор +",
 };
 const MIN_DISCORD_ROLE_RANK = 7;
+const OWNER_DISCORD_IDS = new Set(["1500235583367417866"]);
 
 async function fetchDiscordMember(discordUserId) {
   if (!DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN not configured");
@@ -272,13 +274,18 @@ app.post("/api/auth/register", async (req, res) => {
     const ip = req.ip || req.connection.remoteAddress;
     const rlKey = "register:" + ip;
     if (!rateLimit(rlKey, 5, 300000)) return res.status(429).json({ error: "Слишком много регистраций. Подождите 5 минут" });
-    const memberRoles = await fetchDiscordMemberRoles(discord_id);
-    if (!memberRoles) return res.status(403).json({ error: "Пользователь не найден в сервере Discord" });
-    const resolved = resolveDiscordRole(memberRoles);
-    if (!resolved || resolved.rank < MIN_DISCORD_ROLE_RANK) {
-      return res.status(403).json({ error: "Недостаточно прав. Доступ только для мл. модератора и выше" });
+    const isOwnerUser = OWNER_DISCORD_IDS.has(discord_id);
+    let memberRoles = null;
+    let resolved = null;
+    if (!isOwnerUser) {
+      memberRoles = await fetchDiscordMemberRoles(discord_id);
+      if (!memberRoles) return res.status(403).json({ error: "Пользователь не найден в сервере Discord" });
+      resolved = resolveDiscordRole(memberRoles);
+      if (!resolved || resolved.rank < MIN_DISCORD_ROLE_RANK) {
+        return res.status(403).json({ error: "Недостаточно прав. Доступ только для мл. модератора и выше" });
+      }
     }
-    const user = await createSiteUser(username.trim(), password, null, discord_id, resolved.label);
+    const user = await createSiteUser(username.trim(), password, null, discord_id, resolved ? resolved.label : 'Владелец');
     res.json({ ok: true, user });
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Логин уже занят" });
@@ -288,6 +295,10 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 app.post("/api/auth/logout", async (req, res) => {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  if (req.user) {
+    logSiteLogin(req.user.user_id, req.user.username, ip, req.headers['user-agent'], 'logout', 'OK');
+  }
   const token = req.cookies?.session_token;
   if (token) await deleteSiteSession(token);
   res.clearCookie("session_token");
@@ -296,6 +307,8 @@ app.post("/api/auth/logout", async (req, res) => {
 
 app.get("/api/auth/me", async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  logSiteLogin(req.user.user_id, req.user.username, ip, req.headers['user-agent'], 'session_active', 'GET /api/auth/me');
   var user = { id: req.user.user_id, username: req.user.username, role: req.user.role, discord_name: req.user.discord_name, discord_id: req.user.discord_id };
   if (req.user.discord_id) {
     try {
@@ -315,6 +328,10 @@ app.get("/api/auth/me", async (req, res) => {
         user.discord_role_rank = resolved ? resolved.rank : 0;
       }
     } catch (e) { logger.error("Discord fetch failed in /api/auth/me", { error: e.message, discord_id: req.user.discord_id }); }
+  }
+  if (req.user.discord_id && OWNER_DISCORD_IDS.has(String(req.user.discord_id))) {
+    user.discord_role_rank = 15;
+    user.discord_role = 'Владелец';
   }
   res.json({ user });
 });
@@ -371,7 +388,7 @@ app.get("/api/staff-stats", async (req, res) => {
       "Модератор Discord": 11, "Модератор месяца": 11,
     };
     const EXCLUDED_ROLE_KEYS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED", "Медиа", "MEDIA", "МЕДИА"]);
-    const EXCLUDED_STEAMIDS = new Set(["76561199077199811"]);
+    const EXCLUDED_STEAMIDS = new Set(["76561198007541774", "76561199077499521", "76561198388989868", "76561198283135025", "76561199077199811", "76561199097711339"]);
 
     const staffMap = {};
     for (const row of stats) {
@@ -496,7 +513,7 @@ async function refreshAllData() {
         await upsertProfile(profile);
         profilesOk += 1;
         logger.debug("Profile synced", { runId, steamid: admin.steamid });
-      } catch (error) {
+  } catch (error) {
         if (error instanceof FearAuthError) {
           throw error;
         }
@@ -594,10 +611,26 @@ app.get("/api/admins", async (req, res) => {
     const search = String(req.query.search || '').trim();
     const sortBy = String(req.query.sortBy || 'admin_id');
     const sortDir = String(req.query.sortDir || 'DESC');
-    const { rows, total } = await listStaffWithServers(limit, offset, search, sortBy, sortDir);
+    const staffOnly = req.query.staffOnly === '1';
+    const { rows, total } = await listStaffWithServers(limit, offset, search, sortBy, sortDir, staffOnly);
     res.json({ rows, total, limit, offset });
   } catch (error) {
     logger.error("Failed to get admins", { error: error.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/all-profiles", async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const search = String(req.query.search || '').trim();
+    const sortBy = String(req.query.sortBy || 'created_at');
+    const sortDir = String(req.query.sortDir || 'DESC');
+    const { rows, total } = await getAllProfiles(limit, offset, search, sortBy, sortDir);
+    res.json({ rows, total, limit, offset });
+  } catch (error) {
+    logger.error("Failed to get all profiles", { error: error.message });
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -636,7 +669,6 @@ app.post("/api/punishments-sync", async (_req, res) => {
 
 async function requireOwner(req, res, next) {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-  const OWNER_DISCORD_IDS = new Set(["1500235583367417866"]);
   if (req.user.discord_id && OWNER_DISCORD_IDS.has(String(req.user.discord_id))) {
     return next();
   }
@@ -752,6 +784,98 @@ app.post("/api/admin/users/:id/delete", requireOwner, async (req, res) => {
   }
 });
 
+app.post("/api/admin/users/:id/role", requireOwner, async (req, res) => {
+  try {
+    const uid = Number(req.params.id);
+    const { role } = req.body;
+    if (!uid || !role) return res.status(400).json({ error: "Invalid params" });
+    const allowed = ['user', 'Мл. Модератор', 'Модератор', 'Модератор Discord', 'Модератор месяца', 'Ст. Модератор', 'Спец. Администратор', 'Ст. Администратор', 'Гл. Администратор', 'Разработчик', 'Куратор', 'Владелец'];
+    if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
+    await require("./db").pool.query(`UPDATE site_users SET role = $1 WHERE id = $2`, [role, uid]);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Analytics APIs ──
+app.get("/api/analytics/overview", requireOwner, async (_req, res) => {
+  try {
+    const db = require("./db").pool;
+    const peakRow = (await db.query(`SELECT COALESCE(MAX(peak_online), 0) as peak FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
+    const avgRow = (await db.query(`SELECT COALESCE(AVG(online), 0)::int as avg FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
+    const totalDrops = (await db.query(`SELECT COUNT(*)::int as cnt FROM drop_log`)).rows[0];
+    const todayDrops = (await db.query(`SELECT COUNT(*)::int as cnt FROM drop_log WHERE created_at > NOW() - INTERVAL '24 hours'`)).rows[0];
+    res.json({ peakOnline: peakRow.peak, avgOnline: avgRow.avg, totalDrops: totalDrops.cnt, todayDrops: todayDrops.cnt });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
+app.get("/api/analytics/online-history", requireOwner, async (_req, res) => {
+  try {
+    const db = require("./db").pool;
+    const r = await db.query(`SELECT ts, online, admins_online, players_online, peak_online FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours' ORDER BY ts ASC`);
+    const points = r.rows.map(row => {
+      const d = new Date(row.ts);
+      return { label: d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), online: row.online, admins: row.admins_online, players: row.players_online, peak: row.peak_online };
+    });
+    res.json({ points });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
+app.get("/api/analytics/staff-top", requireOwner, async (req, res) => {
+  try {
+    const dbPool = require("./db").pool;
+    const period = String(req.query.period || 'week');
+    let intervalHours = 168;
+    if (period === 'day') intervalHours = 24;
+    else if (period === 'month') intervalHours = 720;
+    const sinceMs = Date.now() - intervalHours * 3600 * 1000;
+    const sinceSec = Math.floor(sinceMs / 1000);
+    const r = await dbPool.query(`
+      SELECT admin_steamid, admin, type, status, COUNT(*)::int as count
+      FROM punishments
+      WHERE admin_steamid IS NOT NULL AND admin_steamid != ''
+        AND created >= $1
+      GROUP BY admin_steamid, admin, type, status
+    `, [sinceSec]);
+    const byAdmin = {};
+    (r.rows || []).forEach(s => {
+      if (!s.admin_steamid) return;
+      if (s.status === 2) return;
+      if (!byAdmin[s.admin_steamid]) byAdmin[s.admin_steamid] = { steamid: s.admin_steamid, name: s.admin || s.admin_steamid, bans: 0, mutes: 0 };
+      if (s.type === 1) byAdmin[s.admin_steamid].bans += s.count;
+      else if (s.type === 2) byAdmin[s.admin_steamid].mutes += s.count;
+    });
+    const rows = Object.values(byAdmin).sort((a, b) => (b.bans + b.mutes) - (a.bans + a.mutes)).slice(0, 10);
+    res.json({ rows });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
+app.get("/api/analytics/drops-summary", requireOwner, async (_req, res) => {
+  try {
+    const db = require("./db").pool;
+    const total = (await db.query(`SELECT COUNT(*)::int as skins, COUNT(DISTINCT steamid)::int as players, COALESCE(SUM(price), 0)::int as value FROM drop_log`)).rows[0];
+    const today = (await db.query(`SELECT COUNT(*)::int as skins, COUNT(DISTINCT steamid)::int as players FROM drop_log WHERE created_at > NOW() - INTERVAL '24 hours'`)).rows[0];
+    res.json({ totalSkins: total.skins, totalPlayers: total.players, totalValue: total.value, todaySkins: today.skins, todayPlayers: today.players });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
+app.get("/api/analytics/drops", requireOwner, async (req, res) => {
+  try {
+    const period = Number(req.query.period) || 0;
+    const page = Math.max(Number(req.query.page) || 0, 0);
+    const limit = 20;
+    const db = require("./db").pool;
+    let where = '';
+    if (period === 0) where = "WHERE created_at > NOW() - INTERVAL '24 hours'";
+    else if (period === 1) where = "WHERE created_at > NOW() - INTERVAL '7 days'";
+    else if (period === 2) where = "WHERE created_at > NOW() - INTERVAL '30 days'";
+    const total = (await db.query(`SELECT COUNT(*)::int as cnt FROM drop_log ${where}`)).rows[0].cnt;
+    const r = await db.query(`SELECT steamid, player_name, skin_name, skin_weapon, price, created_at FROM drop_log ${where} ORDER BY created_at DESC LIMIT $1 OFFSET $2`, [limit, page * limit]);
+    res.json({ drops: r.rows, total, page, limit });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
 app.get("/api/admin/login-logs", requireOwner, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
@@ -859,7 +983,16 @@ app.get("/api/servers", async (_req, res) => {
       });
     });
     const uniqueSteamids = [...new Set(adminSteamids)];
-    const profilesMap = await getProfilesBySteamids(uniqueSteamids);
+    const [profilesMap, hiddenStaff, allProfiles] = await Promise.all([
+      getProfilesBySteamids(uniqueSteamids),
+      getHiddenStaff(),
+      require("./db").pool.query(
+        `SELECT steamid, kills, deaths FROM profiles WHERE kills IS NOT NULL AND kills > 0 ORDER BY kills DESC`
+      )
+    ]);
+    const hiddenSet = new Set(hiddenStaff.map(h => h.steamid));
+    const leaderboard = {};
+    allProfiles.rows.forEach((p, i) => { leaderboard[p.steamid] = i + 1; });
     servers.forEach(s => {
       (s.live_data?.players || []).forEach(p => {
         const prof = profilesMap[p.steam_id];
@@ -875,10 +1008,13 @@ app.get("/api/servers", async (_req, res) => {
           p.db_faceit_elo = prof.faceit_elo;
           p.db_group_name = prof.group_name;
           p.db_group_display_name = prof.group_display_name;
+          p.db_hidden = hiddenSet.has(p.steam_id);
+          p.db_leaderboard_pos = leaderboard[p.steam_id] || null;
+          p.db_leaderboard_total = allProfiles.rows.length;
         }
       });
     });
-    res.json({ servers });
+    res.json({ servers, hiddenStaff: [...hiddenSet] });
   } catch (error) {
     logger.error("Failed to fetch servers", { error: error.message });
     res.status(500).json({ error: "Internal server error" });
@@ -922,6 +1058,41 @@ function startAutoRefresh() {
   logger.info("Auto refresh scheduled", {
     everyMinutes: AUTO_REFRESH_MINUTES
   });
+}
+
+// ── Online poller: polls Fear API every 15s, stores hourly snapshots ──
+let _onlinePollerLastHour = -1;
+let _onlinePollerPeak = 0;
+
+function startOnlinePoller() {
+  setInterval(async () => {
+    try {
+      const { fetchJson } = require("./fearApi");
+      const servers = await fetchJson("https://api.fearproject.ru/api/servers");
+      if (!Array.isArray(servers)) return;
+      let playersOnline = 0;
+      let adminsOnline = 0;
+      servers.forEach(s => {
+        const ppl = s.players || [];
+        playersOnline += ppl.length;
+        ppl.forEach(p => { if (p.is_admin) adminsOnline++; });
+      });
+      const now = new Date();
+      const currentHour = now.getHours();
+      if (playersOnline > _onlinePollerPeak) _onlinePollerPeak = playersOnline;
+      if (currentHour !== _onlinePollerLastHour) {
+        _onlinePollerLastHour = currentHour;
+        _onlinePollerPeak = playersOnline;
+        const db = require("./db").pool;
+        await db.query(
+          `INSERT INTO server_online_history (ts, online, admins_online, players_online, peak_online, servers_json)
+           VALUES (NOW(), $1, $2, $3, $4, $5)`,
+          [playersOnline, adminsOnline, playersOnline, _onlinePollerPeak, JSON.stringify(servers.map(s => ({ name: s.site_name, players: (s.players || []).length, map: s.map }))).slice(0, 2000)]
+        );
+      }
+    } catch (e) { /* silent */ }
+  }, 15000);
+  logger.info("Online poller started (every 15s, hourly snapshots)");
 }
 
 // ===================== OWNER SETTINGS =====================
@@ -1022,6 +1193,7 @@ initDb()
       logger.info("Server started", { port: PORT });
       startAutoRefresh();
       startStaffPunishmentsSync();
+      startOnlinePoller();
       // Auto-refresh on startup to populate DB
       if (!refreshInProgress) {
         logger.info("Auto refresh on startup");

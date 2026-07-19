@@ -90,9 +90,9 @@ API_BASE_OLD           = os.getenv("API_BASE_OLD", "https://api.fearproject.ru")
 
 # ── Global Fear API rate limiter ──
 # Only 2 concurrent requests to Fear API, min 0.5s between requests
-_fear_api_semaphore = asyncio.Semaphore(1)
+_fear_api_semaphore = asyncio.Semaphore(3)
 _fear_api_last_request = 0.0
-_fear_api_min_interval = 5.0
+_fear_api_min_interval = 2.0
 _fear_api_lock = asyncio.Lock()
 
 # Роли, которым запрещен Yooma (но разрешен /mystats)

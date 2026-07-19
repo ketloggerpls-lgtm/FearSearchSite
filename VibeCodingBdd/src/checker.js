@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const url = require('url');
 const querystring = require('querystring');
 const { pool } = require('./db');
-const { fearApiGet, sleepMs } = require('./fearApi');
+const { sleepMs } = require('./fearApi');
 
 const STEAM_API_KEY = process.env.STEAM_API_KEY || '';
 const FEAR_API_BASE = process.env.FEAR_API_BASE || 'https://fearproject.ru/api';

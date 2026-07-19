@@ -227,6 +227,50 @@ async function initDb() {
     );
   }
   await pool.query(`INSERT INTO owners (steamid, added_by) VALUES ($1, 'seed') ON CONFLICT (steamid) DO NOTHING`, ['76561198675051863']);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS panel_registration_confirmations (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES site_users(id) ON DELETE CASCADE,
+      discord_id TEXT,
+      confirmation_code TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      level INTEGER,
+      expires_at BIGINT NOT NULL,
+      confirmed_at BIGINT,
+      rejected_at BIGINT,
+      created_at BIGINT NOT NULL
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_reg_confirm_code ON panel_registration_confirmations(confirmation_code)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS server_online_history (
+      id SERIAL PRIMARY KEY,
+      ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      online INT NOT NULL DEFAULT 0,
+      admins_online INT NOT NULL DEFAULT 0,
+      players_online INT NOT NULL DEFAULT 0,
+      peak_online INT NOT NULL DEFAULT 0,
+      servers_json JSONB
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_online_history_ts ON server_online_history(ts)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS drop_log (
+      id SERIAL PRIMARY KEY,
+      steamid TEXT NOT NULL,
+      player_name TEXT,
+      skin_name TEXT,
+      skin_weapon TEXT,
+      skin_wear TEXT,
+      price NUMERIC DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_drop_log_ts ON drop_log(created_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_drop_log_steamid ON drop_log(steamid)`);
 }
 
 async function createRefreshRun() {
@@ -469,7 +513,7 @@ async function listAdminsWithProfilesPaginated(limit = 50, offset = 0, search = 
   return { rows: result.rows, total };
 }
 
-async function listStaffWithServers(limit = 50, offset = 0, search = '', sortBy = 'admin_id', sortDir = 'DESC') {
+async function listStaffWithServers(limit = 50, offset = 0, search = '', sortBy = 'admin_id', sortDir = 'DESC', staffOnly = false) {
   const params = [];
   let where = '';
   if (search) {
@@ -483,6 +527,15 @@ async function listStaffWithServers(limit = 50, offset = 0, search = '', sortBy 
       OR COALESCE(p.discord_nickname, p.raw_json->>'discordNickname') ILIKE $3
       OR a.group_display_name ILIKE $4
       OR a.group_name ILIKE $5)`;
+  }
+  if (staffOnly) {
+    const excluded = ['admin', 'admin+', 'ADMIN', 'ADMIN+', 'UNDEFINED', 'Медиа', 'MEDIA', 'МЕДИА'];
+    const staffWhere = excluded.map((_, i) => {
+      const idx = params.length + 1;
+      params.push(excluded[i]);
+      return `LOWER(COALESCE(a.group_name, '')) <> $${idx}`;
+    }).join(' AND ');
+    where = where ? where + ' AND ' + staffWhere : 'WHERE ' + staffWhere;
   }
   const countResult = await pool.query(`
     SELECT COUNT(*)::int as count
@@ -721,6 +774,54 @@ async function getVdfHistoryCount(search = '') {
   return result.rows[0]?.count || 0;
 }
 
+async function getAllProfiles(limit = 50, offset = 0, search = '', sortBy = 'created_at', sortDir = 'DESC') {
+  const params = [];
+  let where = '';
+  if (search) {
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    params.push(`%${search}%`);
+    where = `WHERE (p.name ILIKE $1 OR p.steamid ILIKE $2 OR p.discord_nickname ILIKE $3)`;
+  }
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int as count FROM profiles p ${where}`,
+    params
+  );
+  const total = countResult.rows[0]?.count || 0;
+
+  const allowedSort = {
+    'created_at': "(p.raw_json->>'created_at')",
+    'name': 'p.name',
+    'kills': 'p.kills',
+    'deaths': 'p.deaths',
+    'playtime': 'p.playtime',
+    'last_activity': 'p.last_activity'
+  };
+  const orderCol = allowedSort[sortBy] || "(p.raw_json->>'created_at')";
+  const orderDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+  params.push(limit);
+  params.push(offset);
+  const result = await pool.query(`
+    SELECT
+      p.steamid, p.name, p.kills, p.deaths, p.playtime, p.rank,
+      p.avatar_full, p.discord_nickname, p.discord_id,
+      p.last_activity, p.ban_is_banned,
+      (p.raw_json->>'created_at') AS fear_created_at,
+      ((p.raw_json->'faceit')->>'level')::int AS faceit_level,
+      (p.raw_json->'faceit')->>'url' AS faceit_url,
+      ((p.raw_json->'faceit')->>'elo')::int AS faceit_elo,
+      a.group_name, a.group_display_name
+    FROM profiles p
+    LEFT JOIN admins a ON a.steamid = p.steamid
+    ${where}
+    ORDER BY ${orderCol} ${orderDir} NULLS LAST
+    LIMIT $${params.length - 1} OFFSET $${params.length}
+  `, params);
+
+  return { rows: result.rows, total };
+}
+
 async function getProfilesBySteamids(steamids) {
   if (!steamids || steamids.length === 0) return {};
   const result = await pool.query(`
@@ -801,12 +902,12 @@ function getSiteRoleRank(groupName) {
   return STAFF_ROLE_RANK[groupName] ?? 0;
 }
 
-async function createSiteUser(username, password, discordName, discordId, role) {
+async function createSiteUser(username, password, discordName, discordId, role, isActive = true) {
   const { hash, salt } = hashPassword(password);
   const result = await pool.query(
-    `INSERT INTO site_users (username, password_hash, password_salt, discord_name, discord_id, role)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, role`,
-    [username, hash, salt, discordName || null, discordId || null, role || 'user']
+    `INSERT INTO site_users (username, password_hash, password_salt, discord_name, discord_id, role, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, username, role`,
+    [username, hash, salt, discordName || null, discordId || null, role || 'user', isActive]
   );
   return result.rows[0];
 }
@@ -815,6 +916,46 @@ async function getSiteUserByUsername(username) {
   const result = await pool.query(
     `SELECT * FROM site_users WHERE username = $1 AND is_active = TRUE`,
     [username]
+  );
+  return result.rows[0] || null;
+}
+
+async function getSiteUserByUsernameAny(username) {
+  const result = await pool.query(
+    `SELECT * FROM site_users WHERE username = $1`,
+    [username]
+  );
+  return result.rows[0] || null;
+}
+
+async function activateSiteUser(userId) {
+  await pool.query(`UPDATE site_users SET is_active = TRUE WHERE id = $1`, [userId]);
+}
+
+async function createRegistrationConfirmation(userId, discordId, confirmationCode, expiresAt) {
+  await pool.query(
+    `INSERT INTO panel_registration_confirmations (user_id, discord_id, confirmation_code, status, expires_at, created_at)
+     VALUES ($1, $2, $3, 'pending', $4, $5)`,
+    [userId, discordId || null, confirmationCode, expiresAt, Date.now()]
+  );
+}
+
+async function getRegistrationConfirmation(code) {
+  const result = await pool.query(
+    `SELECT * FROM panel_registration_confirmations
+     WHERE confirmation_code = $1 AND status = 'pending' AND expires_at > $2
+     LIMIT 1`,
+    [code, Date.now()]
+  );
+  return result.rows[0] || null;
+}
+
+async function getRegistrationConfirmationByUserId(userId) {
+  const result = await pool.query(
+    `SELECT * FROM panel_registration_confirmations
+     WHERE user_id = $1 AND status = 'pending' AND expires_at > $2
+     ORDER BY created_at DESC LIMIT 1`,
+    [userId, Date.now()]
   );
   return result.rows[0] || null;
 }
@@ -948,7 +1089,6 @@ async function getStaffStatsForPeriod(dateFrom, dateTo) {
     FROM punishments p
     LEFT JOIN admins a ON a.steamid = p.admin_steamid
     WHERE p.admin_steamid IS NOT NULL AND p.admin_steamid != ''
-    AND p.admin_steamid NOT IN (SELECT steamid FROM hidden_staff)
     AND LOWER(COALESCE(a.group_name, 'staff')) NOT LIKE 'admin%'
     AND LOWER(COALESCE(a.group_name, 'staff')) NOT LIKE '%media%'
     ${dateWhere}
@@ -966,12 +1106,13 @@ async function getTabAccess() {
 
 async function updateTabAccess(tabId, minRoleRank, enabled) {
   try {
-    await pool.query(
-      `UPDATE tab_access SET min_role_rank = $1, enabled = $2, updated_at = NOW() WHERE tab_id = $3`,
+    const r = await pool.query(
+      `INSERT INTO tab_access (tab_id, min_role_rank, enabled, updated_at) VALUES ($3, $1, $2, NOW())
+       ON CONFLICT (tab_id) DO UPDATE SET min_role_rank = $1, enabled = $2, updated_at = NOW()`,
       [minRoleRank, enabled, tabId]
     );
-    return true;
-  } catch (_) { return false; }
+    return r.rowCount > 0;
+  } catch (e) { console.error('updateTabAccess error:', e.message); return false; }
 }
 
 module.exports = {
@@ -1015,5 +1156,11 @@ module.exports = {
   isOwner,
   getReportsCount,
   getTabAccess,
-  updateTabAccess
+  updateTabAccess,
+  getAllProfiles,
+  getSiteUserByUsernameAny,
+  activateSiteUser,
+  createRegistrationConfirmation,
+  getRegistrationConfirmation,
+  getRegistrationConfirmationByUserId
 };
