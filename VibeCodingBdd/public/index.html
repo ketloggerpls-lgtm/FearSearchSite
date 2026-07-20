@@ -164,6 +164,13 @@
                     </div>
                     <span>Аналитика</span>
                 </button>
+                <button class="sidebar-nav-btn flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-400" data-tab="players">
+                    <div class="nav-icon w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 transition-colors">
+                        <i class="ph ph-game-controller text-sm"></i>
+                    </div>
+                    <span>Все игроки</span>
+                    <span id="playersCount" class="ml-auto text-[10px] text-gray-600 font-normal tabular-nums"></span>
+                </button>
             </nav>
 
             <!-- External links -->
@@ -399,7 +406,40 @@
                 </div>
             </div>
 
+            <!-- Tab: All Players -->
+            <div id="tab-players" class="tab-content">
+                <div class="flex gap-3 h-full min-h-0">
+                    <!-- Col 1: All Players -->
+                    <div class="flex-1 flex flex-col min-w-0">
+                        <div class="flex items-center justify-between mb-2 shrink-0">
+                            <h3 class="text-sm font-bold text-emerald-400 flex items-center gap-2"><i class="ph ph-game-controller"></i> Все игроки <span id="allPlayersTotal" class="text-gray-600 font-normal text-xs">0</span></h3>
+                            <label class="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer">
+                                <input type="checkbox" id="unconfiguredToggle" checked class="accent-[#5865F2]"> Показывать ненастроенные
+                            </label>
+                        </div>
+                        <div class="glass-panel rounded-xl p-2 mb-2 shrink-0">
+                            <div class="relative">
+                                <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                                <input type="text" id="allPlayersSearch" placeholder="Поиск по нику или Steam ID..."
+                                    class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5865F2]/50">
+                            </div>
+                        </div>
+                        <div id="allPlayersList" class="flex-1 overflow-y-auto space-y-2"></div>
+                        <div class="mt-2 text-center shrink-0"><span id="allPlayersPaging" class="text-[10px] text-gray-600"></span></div>
+                    </div>
+                    <!-- Col 2: Unconfigured -->
+                    <div class="w-[280px] flex flex-col shrink-0">
+                        <h3 class="text-sm font-bold text-purple-400 mb-2 flex items-center gap-2 shrink-0"><i class="ph ph-warning-circle"></i> Ненастроенные профили <span id="unconfiguredTotal" class="text-gray-600 font-normal text-xs">0</span></h3>
+                        <div id="unconfiguredList" class="flex-1 overflow-y-auto space-y-2"></div>
+                    </div>
+                    <!-- Col 3: Active Reports -->
+                    <div class="w-[320px] flex flex-col shrink-0">
+                        <h3 class="text-sm font-bold text-amber-400 mb-2 flex items-center gap-2 shrink-0"><i class="ph ph-flag-banner"></i> Активные репорты <span id="reportsTotal" class="text-gray-600 font-normal text-xs">0</span></h3>
+                        <div id="reportsList" class="flex-1 overflow-y-auto space-y-2"></div>
+                    </div>
+                </div>
             </div>
+
         </main>
 
         <!-- ====== RIGHT SIDEBAR ====== -->

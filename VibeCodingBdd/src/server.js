@@ -635,6 +635,46 @@ app.get("/api/all-profiles", async (req, res) => {
   }
 });
 
+app.get("/api/unconfigured-profiles", async (_req, res) => {
+  try {
+    const dbPool = require("./db").pool;
+    const r = await dbPool.query(`
+      SELECT p.steamid, p.name, p.kills, p.deaths, p.playtime,
+             p.avatar_full, p.discord_id, p.discord_nickname,
+             (p.raw_json->>'created_at') AS fear_created_at,
+             a.group_name, a.group_display_name
+      FROM profiles p
+      LEFT JOIN admins a ON a.steamid = p.steamid
+      WHERE (p.discord_id IS NULL OR p.discord_id = '')
+        AND a.steamid IS NOT NULL
+      ORDER BY (p.raw_json->>'created_at') DESC NULLS LAST
+      LIMIT 50
+    `);
+    res.json({ profiles: r.rows });
+  } catch (error) { res.status(500).json({ error: "Internal server error" }); }
+});
+
+app.get("/api/active-reports", async (_req, res) => {
+  try {
+    const cookie = process.env.FEAR_COOKIE || (process.env.ACCESS_TOKEN ? `access_token=${process.env.ACCESS_TOKEN}` : null);
+    const headers = {
+      'accept': 'application/json',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'origin': 'https://fearproject.ru',
+      'referer': 'https://fearproject.ru/'
+    };
+    if (cookie) headers.cookie = cookie;
+    const resp = await fetch('https://fearproject.ru/api/reports/recent', {
+      headers,
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!resp.ok) return res.json({ reports: [] });
+    const data = await resp.json();
+    const reports = Array.isArray(data) ? data : (data.reports || data.data || []);
+    res.json({ reports });
+  } catch (_) { res.json({ reports: [] }); }
+});
+
 app.get("/api/refresh-status", (_req, res) => {
   const safeInfo = lastRefreshInfo ? {
     runId: lastRefreshInfo.runId,
