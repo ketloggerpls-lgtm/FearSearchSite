@@ -340,7 +340,7 @@ app.get("/api/dashboard/stats", async (_req, res) => {
   try {
     let adminsOnline = 0, playersOnline = 0;
     try {
-      const data = await fetchJson("/servers/");
+      const data = await fetchJson("/servers");
       const servers = Array.isArray(data) ? data : (data.servers || []);
       for (const s of servers) {
         const players = (s.live_data && s.live_data.players) || [];
@@ -388,7 +388,7 @@ app.get("/api/staff-stats", async (req, res) => {
       "Модератор Discord": 11, "Модератор месяца": 11,
     };
     const EXCLUDED_ROLE_KEYS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED", "Медиа", "MEDIA", "МЕДИА"]);
-    const EXCLUDED_STEAMIDS = new Set(["76561198007541774", "76561199077499521", "76561198388989868", "76561198283135025", "76561199077199811", "76561199097711339", "76561198121797965"]);
+    const EXCLUDED_STEAMIDS = new Set(["76561198007541774", "76561199077499521", "76561198388989868", "76561198283135025", "76561199077199811", "76561199097711339", "76561198121797965", "76561199490416788"]);
 
     const staffMap = {};
     for (const row of stats) {
@@ -635,6 +635,86 @@ app.get("/api/all-profiles", async (req, res) => {
   }
 });
 
+app.get("/api/all-players-live", async (_req, res) => {
+  try {
+    const data = await fetchJson("/servers");
+    const servers = Array.isArray(data) ? data : (data.servers || []);
+    const allPlayers = [];
+    for (const s of servers) {
+      const players = (s.live_data && s.live_data.players) || [];
+      const serverName = s.site_name || s.name || "Unknown";
+      const serverMap = s.live_data?.map_name || s.map || "";
+      const serverIp = s.ip || "";
+      const serverPort = s.port || "";
+      const serverLocation = s.location || "";
+      const gameType = s.mode?.name === "CS:GO" ? "CS:GO" : "CS2";
+      for (const p of players) {
+        if (!p.steam_id) continue;
+        const sp = p.steamProfile || null;
+        allPlayers.push({
+          steam_id: p.steam_id,
+          nickname: p.nickname || p.name || p.steam_id,
+          team: p.team || "",
+          kills: p.kills || 0,
+          deaths: p.deaths || 0,
+          ping: p.ping || 0,
+          is_admin: !!p.is_admin,
+          fear_avatar: p.avatar || null,
+          server_name: serverName,
+          server_map: serverMap,
+          server_ip: serverIp,
+          server_port: serverPort,
+          server_location: serverLocation,
+          game_type: gameType,
+          steam_avatarfull: sp?.avatarfull || null,
+          steam_personaname: sp?.personaname || null,
+          steam_timecreated: sp?.timecreated || 0,
+          steam_profilestate: sp?.profilestate ?? null,
+          steam_avatarhash: sp?.avatarhash || null
+        });
+      }
+    }
+    const uniqueSteamids = [...new Set(allPlayers.map(p => p.steam_id))];
+    const profilesMap = await getProfilesBySteamids(uniqueSteamids);
+    const result = allPlayers.map(p => {
+      const prof = profilesMap[p.steam_id] || {};
+      return {
+        steamid: p.steam_id,
+        nickname: p.nickname,
+        team: p.team,
+        kills: p.kills,
+        deaths: p.deaths,
+        ping: p.ping,
+        is_admin: p.is_admin,
+        fear_avatar: p.fear_avatar,
+        server_name: p.server_name,
+        server_map: p.server_map,
+        server_ip: p.server_ip,
+        server_port: p.server_port,
+        server_location: p.server_location,
+        game_type: p.game_type,
+        steam_avatarfull: p.steam_avatarfull,
+        steam_personaname: p.steam_personaname,
+        steam_timecreated: p.steam_timecreated,
+        steam_profilestate: p.steam_profilestate,
+        steam_avatarhash: p.steam_avatarhash,
+        db_name: prof.name || null,
+        avatar_full: prof.avatar_full || null,
+        fear_created_at: prof.fear_created_at || null,
+        group_name: prof.group_name || null,
+        group_display_name: prof.group_display_name || null,
+        playtime: prof.playtime || 0,
+        db_kills: prof.kills || 0,
+        db_deaths: prof.deaths || 0
+      };
+    });
+    res.json({ players: result, total: result.length });
+  } catch (error) {
+    logger.error("Failed to get live players", { error: error.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.get("/api/unconfigured-profiles", async (_req, res) => {
   try {
     const dbPool = require("./db").pool;
@@ -642,12 +722,12 @@ app.get("/api/unconfigured-profiles", async (_req, res) => {
       SELECT p.steamid, p.name, p.kills, p.deaths, p.playtime,
              p.avatar_full, p.discord_id, p.discord_nickname,
              (p.raw_json->>'created_at') AS fear_created_at,
-             a.group_name, a.group_display_name
+             p.updated_at
       FROM profiles p
-      LEFT JOIN admins a ON a.steamid = p.steamid
-      WHERE (p.discord_id IS NULL OR p.discord_id = '')
-        AND a.steamid IS NOT NULL
-      ORDER BY (p.raw_json->>'created_at') DESC NULLS LAST
+      WHERE (p.kills IS NULL OR p.kills = 0)
+        AND (p.deaths IS NULL OR p.deaths = 0)
+        AND (p.playtime IS NULL OR p.playtime = 0)
+      ORDER BY p.updated_at DESC NULLS LAST
       LIMIT 50
     `);
     res.json({ profiles: r.rows });
@@ -656,20 +736,7 @@ app.get("/api/unconfigured-profiles", async (_req, res) => {
 
 app.get("/api/active-reports", async (_req, res) => {
   try {
-    const cookie = process.env.FEAR_COOKIE || (process.env.ACCESS_TOKEN ? `access_token=${process.env.ACCESS_TOKEN}` : null);
-    const headers = {
-      'accept': 'application/json',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'origin': 'https://fearproject.ru',
-      'referer': 'https://fearproject.ru/'
-    };
-    if (cookie) headers.cookie = cookie;
-    const resp = await fetch('https://fearproject.ru/api/reports/recent', {
-      headers,
-      signal: AbortSignal.timeout(10000)
-    });
-    if (!resp.ok) return res.json({ reports: [] });
-    const data = await resp.json();
+    const data = await fetchJson("/reports/recent");
     const reports = Array.isArray(data) ? data : (data.reports || data.data || []);
     res.json({ reports });
   } catch (_) { res.json({ reports: [] }); }
@@ -831,7 +898,29 @@ app.post("/api/admin/users/:id/role", requireOwner, async (req, res) => {
     if (!uid || !role) return res.status(400).json({ error: "Invalid params" });
     const allowed = ['user', 'Мл. Модератор', 'Модератор', 'Модератор Discord', 'Модератор месяца', 'Ст. Модератор', 'Спец. Администратор', 'Ст. Администратор', 'Гл. Администратор', 'Разработчик', 'Куратор', 'Владелец'];
     if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
-    await require("./db").pool.query(`UPDATE site_users SET role = $1 WHERE id = $2`, [role, uid]);
+    const db = require("./db").pool;
+    await db.query(`UPDATE site_users SET role = $1, pending_discord_role = $1 WHERE id = $2`, [role, uid]);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/admin/users/pending-roles", requireOwner, async (_req, res) => {
+  try {
+    const r = await require("./db").pool.query(
+      `SELECT id, username, discord_name, discord_id, pending_discord_role FROM site_users WHERE pending_discord_role IS NOT NULL AND pending_discord_role != ''`
+    );
+    res.json({ users: r.rows });
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/admin/users/:id/clear-pending-role", requireOwner, async (req, res) => {
+  try {
+    const uid = Number(req.params.id);
+    await require("./db").pool.query(`UPDATE site_users SET pending_discord_role = NULL WHERE id = $1`, [uid]);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
@@ -842,11 +931,22 @@ app.post("/api/admin/users/:id/role", requireOwner, async (req, res) => {
 app.get("/api/analytics/overview", requireOwner, async (_req, res) => {
   try {
     const db = require("./db").pool;
-    const peakRow = (await db.query(`SELECT COALESCE(MAX(peak_online), 0) as peak FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
-    const avgRow = (await db.query(`SELECT COALESCE(AVG(online), 0)::int as avg FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
+    const peak24h = (await db.query(`SELECT COALESCE(MAX(peak_online), 0) as peak FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
+    const avg24h = (await db.query(`SELECT COALESCE(AVG(online), 0)::int as avg FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours'`)).rows[0];
+    const peak7d = (await db.query(`SELECT COALESCE(MAX(peak_online), 0) as peak FROM server_online_history WHERE ts > NOW() - INTERVAL '7 days'`)).rows[0];
+    const avg7d = (await db.query(`SELECT COALESCE(AVG(online), 0)::int as avg FROM server_online_history WHERE ts > NOW() - INTERVAL '7 days'`)).rows[0];
+    const peak30d = (await db.query(`SELECT COALESCE(MAX(peak_online), 0) as peak FROM server_online_history WHERE ts > NOW() - INTERVAL '30 days'`)).rows[0];
+    const avg30d = (await db.query(`SELECT COALESCE(AVG(online), 0)::int as avg FROM server_online_history WHERE ts > NOW() - INTERVAL '30 days'`)).rows[0];
     const totalDrops = (await db.query(`SELECT COUNT(*)::int as cnt FROM drop_log`)).rows[0];
     const todayDrops = (await db.query(`SELECT COUNT(*)::int as cnt FROM drop_log WHERE created_at > NOW() - INTERVAL '24 hours'`)).rows[0];
-    res.json({ peakOnline: peakRow.peak, avgOnline: avgRow.avg, totalDrops: totalDrops.cnt, todayDrops: todayDrops.cnt });
+    const totalDropValue = (await db.query(`SELECT COALESCE(SUM(price), 0)::int as val FROM drop_log`)).rows[0];
+    res.json({
+      peakOnline: peak24h.peak, avgOnline: avg24h.avg,
+      peakOnline7d: peak7d.peak, avgOnline7d: avg7d.avg,
+      peakOnline30d: peak30d.peak, avgOnline30d: avg30d.avg,
+      totalDrops: totalDrops.cnt, todayDrops: todayDrops.cnt,
+      totalDropValue: totalDropValue.val
+    });
   } catch (error) { res.status(500).json({ error: "Internal server error" }); }
 });
 
@@ -936,13 +1036,20 @@ app.get("/api/admin/login-logs", requireOwner, async (req, res) => {
 app.get("/api/my-stats", async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   try {
-    let steamid = req.user.steamid || req.user.username;
-    if (req.user.discord_id) {
+    let steamid = req.user.steamid || null;
+    if (!steamid && req.user.discord_id) {
       const prof = await require("./db").pool.query(
         `SELECT steamid FROM profiles WHERE discord_id = $1 LIMIT 1`,
         [String(req.user.discord_id)]
       );
       if (prof.rows.length) steamid = prof.rows[0].steamid;
+    }
+    if (!steamid) {
+      const adminRow = await require("./db").pool.query(
+        `SELECT steamid FROM admins WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+        [req.user.username]
+      );
+      if (adminRow.rows.length) steamid = adminRow.rows[0].steamid;
     }
     if (!steamid) return res.json({ steamid: null, bans: 0, mutes: 0, rows: [] });
     const stats = await getStaffPunishments(steamid, 0, 200);
@@ -1014,7 +1121,7 @@ app.get("/api/punishments/logs", async (req, res) => {
 
 app.get("/api/servers", async (_req, res) => {
   try {
-    const data = await fetchJson("/servers/");
+    const data = await fetchJson("/servers");
     const servers = Array.isArray(data) ? data : (data.servers || []);
     const adminSteamids = [];
     servers.forEach(s => {
@@ -1101,12 +1208,12 @@ function startOnlinePoller() {
   setInterval(async () => {
     try {
       const { fetchJson } = require("./fearApi");
-      const servers = await fetchJson("/servers/");
+      const servers = await fetchJson("/servers");
       if (!Array.isArray(servers)) return;
       let playersOnline = 0;
       let adminsOnline = 0;
       servers.forEach(s => {
-        const ppl = s.players || [];
+        const ppl = (s.live_data && s.live_data.players) || [];
         playersOnline += ppl.length;
         ppl.forEach(p => { if (p.is_admin) adminsOnline++; });
       });
@@ -1120,12 +1227,41 @@ function startOnlinePoller() {
         await db.query(
           `INSERT INTO server_online_history (ts, online, admins_online, players_online, peak_online, servers_json)
            VALUES (NOW(), $1, $2, $3, $4, $5)`,
-          [playersOnline, adminsOnline, playersOnline, _onlinePollerPeak, JSON.stringify(servers.map(s => ({ name: s.site_name, players: (s.players || []).length, map: s.map }))).slice(0, 2000)]
+          [playersOnline, adminsOnline, playersOnline, _onlinePollerPeak, JSON.stringify(servers.map(s => ({ name: s.site_name, players: ((s.live_data && s.live_data.players) || []).length, map: s.live_data?.map_name || s.map }))).slice(0, 2000)]
         );
       }
     } catch (e) { /* silent */ }
   }, 15000);
   logger.info("Online poller started (every 15s, hourly snapshots)");
+}
+
+// ── Drop feed poller: polls fearproject.ru/api/drops/feed every 30s ──
+function startDropFeedPoller() {
+  setInterval(async () => {
+    try {
+      const { fetchJson } = require("./fearApi");
+      const feed = await fetchJson("/drops/feed");
+      const drops = Array.isArray(feed) ? feed : (feed.drops || feed.data || []);
+      if (!drops.length) return;
+      const db = require("./db").pool;
+      for (const d of drops) {
+        const steamid = d.steamid || d.steam_id || d.player_steamid || null;
+        const skinName = d.skin_name || d.name || d.weapon_name || '';
+        if (!steamid || !skinName) continue;
+        const existing = await db.query(
+          `SELECT id FROM drop_log WHERE steamid = $1 AND skin_name = $2 AND created_at > NOW() - INTERVAL '5 minutes'`,
+          [steamid, skinName]
+        );
+        if (existing.rows.length > 0) continue;
+        await db.query(
+          `INSERT INTO drop_log (steamid, player_name, skin_name, skin_weapon, skin_wear, price)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [steamid, d.player_name || d.nickname || '', skinName, d.skin_weapon || d.weapon || '', d.skin_wear || d.wear || '', d.price || 0]
+        );
+      }
+    } catch (e) { /* silent */ }
+  }, 30000);
+  logger.info("Drop feed poller started (every 30s)");
 }
 
 // ===================== OWNER SETTINGS =====================
@@ -1153,7 +1289,7 @@ app.post("/api/owner/force-refresh", requireOwner, async (req, res) => {
   refreshAllData().catch(error => logger.error("Force refresh failed", { error: error.message }));
 });
 
-const EXCLUDED_STEAMIDS_SET = new Set(["76561198007541774", "76561199077499521", "76561198388989868", "76561198283135025", "76561199077199811", "76561199097711339", "76561198121797965"]);
+const EXCLUDED_STEAMIDS_SET = new Set(["76561198007541774", "76561199077499521", "76561198388989868", "76561198283135025", "76561199077199811", "76561199097711339", "76561198121797965", "76561199490416788"]);
 const STAFF_EXCLUDED_GROUPS = new Set(["admin", "admin+", "ADMIN", "ADMIN+", "UNDEFINED", "Медиа", "MEDIA", "МЕДИА"]);
 
 app.get("/api/staff-overview", requireOwner, async (_req, res) => {
@@ -1237,7 +1373,7 @@ app.get("/api/owner/system", requireOwner, async (req, res) => {
     } catch (_) {}
     let totalAdminsOnline = 0;
     try {
-      const data = await fetchJson("/servers/");
+      const data = await fetchJson("/servers");
       const servers = Array.isArray(data) ? data : (data.servers || []);
       for (const s of servers) {
         const players = (s.live_data && s.live_data.players) || [];
@@ -1277,6 +1413,7 @@ initDb()
       startAutoRefresh();
       startStaffPunishmentsSync();
       startOnlinePoller();
+      startDropFeedPoller();
       // Auto-refresh on startup to populate DB
       if (!refreshInProgress) {
         logger.info("Auto refresh on startup");

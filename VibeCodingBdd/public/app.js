@@ -104,6 +104,37 @@ function fmtAge(created_at) {
   } catch(e) { return null; }
 }
 
+function formatAccountDate(timestamp) {
+  if (!timestamp) return { fullDate: "", relativeTime: "" };
+  var accountCreated = new Date(timestamp * 1000);
+  if (isNaN(accountCreated.getTime())) return { fullDate: "", relativeTime: "" };
+  var now = new Date();
+  var diffMs = now - accountCreated;
+  var diffSeconds = Math.floor(diffMs / 1000);
+  var years = Math.floor(diffSeconds / (365 * 24 * 60 * 60));
+  var days = Math.floor((diffSeconds % (365 * 24 * 60 * 60)) / (24 * 60 * 60));
+  var hours = Math.floor((diffSeconds % (24 * 60 * 60)) / (60 * 60));
+  var minutes = Math.floor((diffSeconds % (60 * 60)) / 60);
+  var seconds = diffSeconds % 60;
+  var parts = [];
+  if (years > 0) parts.push(years + " " + (years === 1 ? "год" : years < 5 ? "года" : "лет"));
+  if (days > 0) parts.push(days + " " + (days === 1 ? "день" : days < 5 ? "дня" : "дней"));
+  if (hours > 0) parts.push(hours + " " + (hours === 1 ? "час" : hours < 5 ? "часа" : "часов"));
+  if (minutes > 0) parts.push(minutes + " " + (minutes === 1 ? "минута" : minutes < 5 ? "минуты" : "минут"));
+  var totalHours = Math.floor(diffSeconds / 3600);
+  if (totalHours < 1) {
+    parts.push(seconds + " " + (seconds === 1 ? "секунда" : seconds < 5 ? "секунды" : "секунд"));
+  }
+  var relativeTime = parts.length ? parts.join(", ") + " назад" : "";
+  var months = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+  var day = accountCreated.getDate();
+  var month = months[accountCreated.getMonth()];
+  var year = accountCreated.getFullYear();
+  var hh = String(accountCreated.getHours()).padStart(2, "0");
+  var mm = String(accountCreated.getMinutes()).padStart(2, "0");
+  return { fullDate: day + " " + month + " " + year + " в " + hh + ":" + mm, relativeTime: relativeTime };
+}
+
 function fmtDate(value) {
   if (!value) return "-";
   try { return new Date(value).toLocaleString("ru-RU"); } catch(e) { return "-"; }
@@ -529,29 +560,37 @@ function renderStats() {
   else if (currentStatsView === "top") renderStatsTop(cachedStatsData);
 }
 
-function loadStats() {
+function loadStats(showLoading) {
   var loading = document.getElementById("statsLoading");
   var content = document.getElementById("statsContent");
   var empty = document.getElementById("statsEmpty");
-  loading.classList.remove("hidden");
-  content.classList.add("hidden");
-  empty.classList.add("hidden");
+  if (showLoading !== false) {
+    loading.classList.remove("hidden");
+    content.classList.add("hidden");
+    empty.classList.add("hidden");
+  }
   var params = getPeriodParams(currentPeriod);
   var url = "/api/staff-stats?from=" + encodeURIComponent(params.from) + "&to=" + encodeURIComponent(params.to);
   document.getElementById("periodLabel").textContent = formatPeriodLabel(currentPeriod);
   fetch(url).then(function(r){return r.json()}).then(function(data) {
     loading.classList.add("hidden");
     if (!data.grouped || Object.keys(data.grouped).length === 0) {
+      content.classList.add("hidden");
       empty.classList.remove("hidden");
       return;
     }
     document.getElementById("totalText").textContent = (data.staff ? data.staff.length : 0) + " чел.";
+    var newJson = JSON.stringify(data);
+    if (cachedStatsData && JSON.stringify(cachedStatsData) === newJson) return;
     cachedStatsData = data;
     renderStats();
+    content.classList.remove("hidden");
   }).catch(function(err) {
     loading.classList.add("hidden");
-    empty.textContent = "Ошибка: " + err.message;
-    empty.classList.remove("hidden");
+    if (!cachedStatsData) {
+      empty.textContent = "Ошибка: " + err.message;
+      empty.classList.remove("hidden");
+    }
   });
 }
 
@@ -851,9 +890,9 @@ setInterval(function() {
   document.querySelectorAll(".sidebar-nav-btn.active").forEach(function(btn) {
     var tab = btn.dataset.tab;
     if (tab === "online") { loadOnlineAdmins(); loadDashboardStats(); }
-    if (tab === "stats") loadStats();
+    if (tab === "stats") loadStats(false);
     if (tab === "logs") loadLogs(logsPage);
-    if (tab === "mystats") loadMyStats();
+    if (tab === "mystats") loadMyStats(false);
     if (tab === "players") loadAllPlayersTab();
     if (tab === "adminpanel") { loadAdminPanel(); loadOwnerSystem(); loadTabAccess(); }
   });
@@ -861,9 +900,13 @@ setInterval(function() {
 
 var currentMyStatsPeriod = "this-month";
 
-function loadMyStats() {
+var cachedMyStatsData = null;
+
+function loadMyStats(showLoading) {
   var el = document.getElementById("myStatsContent");
-  el.innerHTML = '<div class="skeleton h-[80px]"></div>';
+  if (showLoading !== false) {
+    el.innerHTML = '<div class="skeleton h-[80px]"></div>';
+  }
   var params = getPeriodParams(currentMyStatsPeriod);
   var url = "/api/my-stats?from=" + encodeURIComponent(params.from) + "&to=" + encodeURIComponent(params.to);
   fetch(url).then(function(r){return r.json()}).then(function(data) {
@@ -871,6 +914,9 @@ function loadMyStats() {
       el.innerHTML = '<div class="glass-panel rounded-xl p-6 text-center"><div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3"><i class="ph ph-user-circle text-3xl text-gray-600"></i></div><div class="text-gray-400 text-sm mb-1">SteamID не найден</div><div class="text-gray-600 text-xs">Ваш Discord аккаунт не привязан к профилю на сервере</div></div>';
       return;
     }
+    var newJson = JSON.stringify(data);
+    if (cachedMyStatsData && cachedMyStatsData === newJson) return;
+    cachedMyStatsData = newJson;
     var html = '<div class="glass-panel rounded-xl p-5 mb-4">';
     html += '<div class="flex items-center gap-4 mb-5">';
     if (currentUser && currentUser.discord_avatar) {
@@ -901,6 +947,13 @@ function loadMyStats() {
       });
       html += '</div></div>';
     }
+    el.innerHTML = html;
+  }).catch(function() {
+    if (showLoading !== false) {
+      el.innerHTML = '<div class="text-center text-red-400 text-xs">Ошибка загрузки</div>';
+    }
+  });
+}
     el.innerHTML = html;
   }).catch(function(err) {
     el.innerHTML = '<div class="glass-panel rounded-xl p-6 text-center"><div class="text-red-400 text-sm">Ошибка загрузки: ' + esc(err.message) + '</div></div>';
@@ -977,6 +1030,26 @@ function loadAdminPanel() {
     });
     usersEl.innerHTML = html;
   }).catch(function() { if (usersEl) usersEl.innerHTML = '<div class="text-red-400 text-xs">Ошибка</div>'; });
+
+  // Pending Discord roles
+  var pendingEl = document.getElementById("adminPendingRoles");
+  if (pendingEl) {
+    fetch("/api/admin/users/pending-roles").then(function(r){return r.json()}).then(function(data) {
+      var users = data.users || [];
+      if (!users.length) { pendingEl.innerHTML = '<div class="text-gray-500 text-xs">Нет ожидающих ролей</div>'; return; }
+      var html = '<div class="text-xs font-semibold text-gray-400 mb-2">Ожидают выдачи роли в Discord:</div>';
+      html += '<div class="space-y-1">';
+      users.forEach(function(u) {
+        html += '<div class="flex items-center justify-between px-2 py-1 rounded bg-white/[0.03] text-[10px]">';
+        html += '<span class="text-white">' + esc(u.username) + '</span>';
+        html += '<span class="text-amber-400 font-mono">' + esc(u.pending_discord_role) + '</span>';
+        html += '<span class="text-gray-500">(' + esc(u.discord_name || u.discord_id) + ')</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      pendingEl.innerHTML = html;
+    }).catch(function() {});
+  }
 
   fetch("/api/admin/login-logs?limit=30").then(function(r){return r.json()}).then(function(data) {
     if (!logsEl) return;
@@ -1232,10 +1305,14 @@ function loadAnalytics() {
     var el = document.getElementById("analyticsStats");
     if (!el) return;
     el.innerHTML = ''
-      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-emerald-400">' + (d.peakOnline || 0) + '</div><div class="text-[10px] text-gray-500">Пик онлайна</div></div>'
-      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-blue-400">' + (d.avgOnline || 0) + '</div><div class="text-[10px] text-gray-500">Средний онлайн</div></div>'
-      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-purple-400">' + (d.totalDrops || 0) + '</div><div class="text-[10px] text-gray-500">Всего дропов</div></div>'
-      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-amber-400">' + (d.todayDrops || 0) + '</div><div class="text-[10px] text-gray-500">Дропов сегодня</div></div>';
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-emerald-400">' + (d.peakOnline || 0) + '</div><div class="text-[10px] text-gray-500">Пик 24ч</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-blue-400">' + (d.avgOnline || 0) + '</div><div class="text-[10px] text-gray-500">Средний 24ч</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-purple-400">' + (d.peakOnline7d || 0) + '</div><div class="text-[10px] text-gray-500">Пик 7д</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-indigo-400">' + (d.avgOnline7d || 0) + '</div><div class="text-[10px] text-gray-500">Средний 7д</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-pink-400">' + (d.peakOnline30d || 0) + '</div><div class="text-[10px] text-gray-500">Пик 30д</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-teal-400">' + (d.avgOnline30d || 0) + '</div><div class="text-[10px] text-gray-500">Средний 30д</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-amber-400">' + (d.totalDrops || 0) + '</div><div class="text-[10px] text-gray-500">Всего дропов</div></div>'
+      + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-orange-400">' + (d.todayDrops || 0) + '</div><div class="text-[10px] text-gray-500">Дропов сегодня</div></div>';
   }).catch(function(){});
   loadAnalyticsOnlineChart();
   loadAnalyticsStaffTop();
@@ -1356,65 +1433,124 @@ function fetchAnalyticsDropsPage(period, page) {
 }
 
 // ===================== ALL PLAYERS TAB =====================
-var playersPage = 0;
-var playersPageSize = 30;
-var playersTotal = 0;
-var playersLoading = false;
-var playersSearchQuery = "";
+var livePlayersData = [];
+var livePlayersSearchQuery = "";
 
 function loadAllPlayersTab() {
-  loadAllPlayers(true);
+  loadLivePlayers();
   loadUnconfigured();
   loadActiveReports();
 }
 
-function renderPlayerCard(p) {
+function renderLivePlayerCard(p) {
   var steamId = p.steamid;
-  var name = p.name || steamId;
-  var avatar = p.avatar_full || "";
-  var kills = p.kills || 0;
-  var deaths = p.deaths || 0;
-  var kd = deaths > 0 ? (kills / deaths).toFixed(2) : (kills > 0 ? kills + "/0" : "-");
   var fearUrl = "https://fearproject.ru/profile/" + steamId;
   var steamUrl = "https://steamcommunity.com/profiles/" + steamId;
-  var regDate = p.fear_created_at ? new Date(p.fear_created_at < 1e12 ? p.fear_created_at * 1000 : p.fear_created_at) : null;
-  var regStr = regDate && !isNaN(regDate.getTime()) ? regDate.toLocaleDateString("ru-RU") + " в " + regDate.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"}) : null;
-  var regAge = regDate ? fmtAge(p.fear_created_at) : null;
-  var groupLabel = p.group_display_name || p.group_name || null;
+  var kills = p.kills || 0;
+  var deaths = p.deaths || 0;
+  var ping = p.ping || 0;
+  var ipPort = p.server_ip && p.server_port ? p.server_ip + ":" + p.server_port : "";
+  var connectUrl = ipPort ? "steam://connect/" + ipPort : "";
+  var serverName = p.server_name || "";
+  var serverMap = p.server_map || "";
+  var serverLocation = p.server_location || "";
+  var gameType = p.game_type || "CS2";
 
-  var html = '<div class="rounded-xl bg-white/[0.03] border border-white/5 p-3 hover:border-white/10 transition-colors">';
+  var steamAvatar = p.steam_avatarfull || "";
+  var defaultAvatar = "https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg";
+  var displayName = p.steam_personaname || p.nickname || p.db_name || steamId;
+
+  var dateObj = formatAccountDate(p.steam_timecreated);
+
+  var avatarUrl = steamAvatar || defaultAvatar;
+
+  var html = '<div class="rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15] transition-all">';
+
+  html += '<div class="p-3">';
   html += '<div class="flex items-start gap-3">';
-  html += '<a href="' + fearUrl + '" target="_blank" class="relative shrink-0 block">';
-  if (avatar) {
-    html += '<img src="' + esc(avatar) + '" class="w-11 h-11 rounded-lg object-cover" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
-    html += '<div class="w-11 h-11 rounded-lg bg-white/10 items-center justify-center hidden">' + letterAvatar(name, 44) + '</div>';
+
+  if (steamAvatar) {
+    html += '<img src="' + esc(avatarUrl) + '" class="w-[46px] h-[46px] rounded-full object-cover shrink-0" onerror="this.src=\'' + defaultAvatar + '\'">';
   } else {
-    html += letterAvatar(name, 44);
+    html += '<div class="w-[46px] h-[46px] rounded-full bg-white/[0.08] flex items-center justify-center shrink-0 text-gray-500 font-bold text-lg">?</div>';
   }
-  html += '</a>';
+
   html += '<div class="flex-1 min-w-0">';
-  html += '<a href="' + fearUrl + '" target="_blank" class="text-sm font-semibold text-white truncate block hover:text-[#818cf8] transition-colors">' + esc(name) + '</a>';
+  html += '<a href="' + fearUrl + '" target="_blank" class="text-[12px] font-semibold text-white truncate block hover:text-[#818cf8] transition-colors">' + esc(displayName) + '</a>';
   html += '<div class="text-[10px] text-gray-500 font-mono mt-0.5">' + esc(steamId) + '</div>';
-  if (regStr) {
-    html += '<div class="flex items-center gap-1 mt-1">';
-    html += '<i class="ph ph-clock text-gray-600 text-[10px]"></i>';
-    html += '<span class="text-[10px] text-gray-500">' + esc(regStr) + '</span>';
-    if (regAge) html += '<span class="text-[10px] text-gray-600">(' + regAge + ')</span>';
+  if (dateObj.fullDate) {
+    html += '<div class="flex items-center gap-1.5 mt-1">';
+    html += '<i class="ph ph-clock text-[10px] text-gray-600"></i>';
+    html += '<span class="text-[10px] text-gray-400">' + esc(dateObj.fullDate) + '</span>';
+    html += '</div>';
+    if (dateObj.relativeTime) {
+      html += '<div class="text-[9px] text-gray-600 mt-0.5 ml-[18px]">' + esc(dateObj.relativeTime) + '</div>';
+    }
+  }
+  html += '</div>';
+
+  html += '<div class="flex items-start gap-2 shrink-0">';
+  if (serverName) {
+    var gameBadgeClass = gameType === "CS:GO" ? 'bg-orange-400/15 text-orange-400' : 'bg-[#5865F2]/15 text-[#818cf8]';
+    html += '<div class="rounded-lg p-2 bg-white/[0.04] min-w-[140px]">';
+    html += '<div class="flex items-center gap-1.5 mb-1">';
+    html += '<span class="text-[9px] font-semibold px-1.5 py-0.5 rounded ' + gameBadgeClass + '">' + gameType + '</span>';
+    html += '<span class="text-[10px] font-medium text-white truncate">' + esc(serverName) + '</span>';
+    html += '</div>';
+    if (serverMap) {
+      html += '<div class="flex items-center gap-1 text-[9px] text-gray-400">';
+      html += '<i class="ph ph-map-pin text-[8px]"></i>';
+      html += '<span>' + esc(serverMap) + '</span>';
+      html += '</div>';
+    }
+    if (serverLocation) {
+      html += '<div class="flex items-center gap-1 text-[9px] text-gray-500 mt-0.5">';
+      html += '<i class="ph ph-radio-button text-[6px] text-emerald-400"></i>';
+      html += '<span>' + esc(serverLocation) + '</span>';
+      html += '</div>';
+    }
+    if (ipPort) {
+      html += '<div class="flex items-center gap-1 text-[9px] text-gray-500 mt-0.5">';
+      html += '<i class="ph ph-globe text-[8px]"></i>';
+      html += '<span class="font-mono">' + esc(ipPort) + '</span>';
+      html += '</div>';
+    }
     html += '</div>';
   }
   html += '</div>';
-  if (groupLabel) html += '<span class="tag shrink-0" style="background:' + (roleColor(groupLabel) || '#6b7280') + '18;color:' + (roleColor(groupLabel) || '#6b7280') + '">' + esc(groupLabel) + '</span>';
+
   html += '</div>';
+
   html += '<div class="grid grid-cols-3 gap-2 mt-3">';
-  html += '<div class="text-center py-1.5 rounded-lg bg-white/[0.03]"><div class="text-[11px] font-bold text-emerald-400">' + kills + '</div><div class="text-[9px] text-gray-600">Убийства</div></div>';
-  html += '<div class="text-center py-1.5 rounded-lg bg-white/[0.03]"><div class="text-[11px] font-bold text-red-400">' + deaths + '</div><div class="text-[9px] text-gray-600">Смерти</div></div>';
-  html += '<div class="text-center py-1.5 rounded-lg bg-white/[0.03]"><div class="text-[11px] font-bold text-white">' + kd + '</div><div class="text-[9px] text-gray-600">K/D</div></div>';
+  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
+  html += '<div class="text-[10px] text-gray-500 mb-0.5">Убийства</div>';
+  html += '<div class="text-[14px] font-bold text-emerald-400">' + kills + '</div>';
   html += '</div>';
-  html += '<div class="flex items-center gap-1.5 mt-2">';
-  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-white text-center transition-colors font-medium">Steam</a>';
-  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-white text-center transition-colors font-medium">Fear</a>';
-  html += '<button onclick="copyToClipboard(\'' + esc(steamId) + '\', this)" class="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-white transition-colors" title="SteamID"><i class="ph ph-copy"></i></button>';
+  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
+  html += '<div class="text-[10px] text-gray-500 mb-0.5">Смерти</div>';
+  html += '<div class="text-[14px] font-bold text-red-400">' + deaths + '</div>';
   html += '</div>';
+  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
+  html += '<div class="text-[10px] text-gray-500 mb-0.5">Пинг</div>';
+  html += '<div class="text-[14px] font-bold text-blue-400">' + ping + '<span class="text-[9px] font-normal">ms</span></div>';
+  html += '</div>';
+  html += '</div>';
+
+  html += '<div class="flex gap-1.5 mt-2">';
+  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-steam-logo text-[11px]"></i>Профиль Steam</a>';
+  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-shield text-[11px]"></i>Профиль Fear</a>';
+  html += '<button onclick="copyToClipboard(\'' + esc(steamId) + '\', this)" class="py-1.5 px-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white transition-colors flex items-center gap-1"><i class="ph ph-copy text-[11px]"></i>SteamID</button>';
+  html += '</div>';
+
+  html += '<div class="flex gap-1.5 mt-1.5">';
+  if (ipPort) {
+    html += '<button onclick="copyToClipboard(\'' + esc(ipPort) + '\', this)" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-copy text-[11px]"></i>IP:PORT</button>';
+    html += '<a href="' + connectUrl + '" class="flex-1 py-1.5 rounded-lg bg-[#5865F2]/15 hover:bg-[#5865F2]/25 text-[10px] text-[#818cf8] font-medium text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-plugs text-[11px]"></i>Подключиться</a>';
+  } else {
+    html += '<div class="flex-1"></div>';
+  }
+  html += '</div>';
+
   html += '</div>';
   return html;
 }
@@ -1425,29 +1561,46 @@ function renderUnconfiguredCard(p) {
   var fearUrl = "https://fearproject.ru/profile/" + steamId;
   var steamUrl = "https://steamcommunity.com/profiles/" + steamId;
   var regDate = p.fear_created_at ? new Date(p.fear_created_at < 1e12 ? p.fear_created_at * 1000 : p.fear_created_at) : null;
-  var regStr = regDate && !isNaN(regDate.getTime()) ? regDate.toLocaleDateString("ru-RU") + " в " + regDate.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"}) : '-';
+  var regStr = regDate && !isNaN(regDate.getTime()) ? regDate.toLocaleDateString("ru-RU") + " в " + regDate.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"}) : '';
   var regAge = regDate ? fmtAge(p.fear_created_at) : null;
 
-  var html = '<div class="rounded-xl bg-white/[0.03] border border-amber-500/20 p-3">';
-  html += '<div class="flex items-start gap-2.5">';
-  html += letterAvatar(name, 36);
+  var html = '<div class="rounded-xl overflow-hidden border border-purple-500/20 bg-white/[0.03] hover:border-purple-500/30 transition-all">';
+
+  html += '<div class="p-3">';
+  html += '<div class="flex items-start gap-3">';
+
+  html += '<div class="w-[46px] h-[46px] rounded-full bg-white/[0.08] flex items-center justify-center shrink-0 text-gray-500 font-bold text-lg">?</div>';
+
   html += '<div class="flex-1 min-w-0">';
-  html += '<div class="text-xs font-semibold text-white truncate">' + esc(name) + '</div>';
-  html += '<div class="text-[9px] text-gray-500 font-mono">' + esc(steamId) + '</div>';
-  html += '<div class="flex items-center gap-1 mt-1"><i class="ph ph-clock text-gray-600 text-[9px]"></i><span class="text-[9px] text-gray-500">' + esc(regStr) + (regAge ? ' (' + regAge + ')' : '') + '</span></div>';
-  html += '</div></div>';
-  html += '<div class="flex items-center gap-1 mt-2">';
-  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[9px] text-gray-400 hover:text-white text-center transition-colors">Steam</a>';
-  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[9px] text-gray-400 hover:text-white text-center transition-colors">Fear</a>';
-  html += '</div></div>';
+  html += '<div class="text-[12px] font-semibold text-white truncate">' + esc(name) + '</div>';
+  html += '<div class="text-[10px] text-gray-500 font-mono mt-0.5">' + esc(steamId) + '</div>';
+  if (regStr) {
+    html += '<div class="flex items-center gap-1.5 mt-1">';
+    html += '<i class="ph ph-clock text-[10px] text-gray-600"></i>';
+    html += '<span class="text-[10px] text-gray-400">' + esc(regStr) + '</span>';
+    html += '</div>';
+    if (regAge) {
+      html += '<div class="text-[9px] text-gray-600 mt-0.5 ml-[18px]">' + esc(regAge) + '</div>';
+    }
+  }
+  html += '</div>';
+
+  html += '</div>';
+
+  html += '<div class="flex gap-1.5 mt-2">';
+  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-steam-logo text-[11px]"></i>Steam</a>';
+  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-shield text-[11px]"></i>Fear</a>';
+  html += '</div>';
+
+  html += '</div>';
   return html;
 }
 
 function renderReportCard(r) {
   var id = r.id || r.ticket_id || '?';
-  var reporter = r.reporter_name || r.sender_name || r.reporter || '—';
-  var violator = r.violator_name || r.name || r.violator || '—';
-  var reason = r.reason || r.ticket_reason || '—';
+  var reporter = r.reporter_name || r.sender_name || r.sender || r.reporter || '\u2014';
+  var violator = r.violator_name || r.intruder || r.name || r.violator || '\u2014';
+  var reason = r.reason || r.ticket_reason || '\u2014';
   var server = r.server_name || r.server || '';
   var created = r.created_at || r.date || r.created;
   var createdStr = '';
@@ -1455,60 +1608,134 @@ function renderReportCard(r) {
     var d = new Date(created < 1e12 ? created * 1000 : created);
     if (!isNaN(d.getTime())) createdStr = d.toLocaleDateString("ru-RU") + ' ' + d.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"});
   }
-
+  var status = r.status || '';
+  var statusColor = status === 'open' || status === 1 ? 'text-emerald-400' : 'text-gray-500';
+  var statusLabel = status === 'open' || status === 1 ? 'Открыт' : status === 'closed' ? 'Закрыт' : status;
   var html = '<div class="rounded-xl bg-white/[0.03] border border-white/5 p-3 hover:border-amber-500/20 transition-colors">';
-  html += '<div class="flex items-center justify-between mb-2">';
+  html += '<div class="flex items-center justify-between mb-1.5">';
   html += '<span class="text-[11px] font-bold text-amber-400">#' + esc(String(id)) + '</span>';
-  if (createdStr) html += '<span class="text-[9px] text-gray-600 font-mono">' + esc(createdStr) + '</span>';
+  html += '<span class="text-[9px] ' + statusColor + '">' + esc(statusLabel) + '</span>';
   html += '</div>';
-  html += '<div class="text-[11px] text-gray-300 mb-1"><span class="text-gray-500">От:</span> ' + esc(reporter) + '</div>';
-  html += '<div class="text-[11px] text-gray-300 mb-1"><span class="text-gray-500">Нарушитель:</span> ' + esc(violator) + '</div>';
-  html += '<div class="text-[10px] text-gray-400 mb-2 truncate" title="' + esc(reason) + '"><span class="text-gray-500">Причина:</span> ' + esc(reason) + '</div>';
-  if (server) html += '<div class="text-[9px] text-gray-600 mb-2"><i class="ph ph-server mr-1"></i>' + esc(server) + '</div>';
-  html += '<div class="flex gap-1.5">';
-  html += '<select id="reportVerdict_' + esc(String(id)) + '" class="flex-1 text-[10px] px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-gray-400">';
-  html += '<option value="punished">Игрок наказан</option>';
-  html += '<option value="not_confirmed">Не подтверждено</option>';
-  html += '<option value="insufficient">Недостаточно доказательств</option>';
-  html += '<option value="needs_check">Доп. проверка</option>';
-  html += '</select>';
-  html += '</div>';
-  html += '<input type="text" id="reportNote_' + esc(String(id)) + '" placeholder="Комментарий..." class="w-full mt-1.5 text-[10px] px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#5865F2]/50">';
+  html += '<div class="text-[11px] text-gray-300 mb-0.5 truncate"><span class="text-gray-500">От:</span> ' + esc(reporter) + '</div>';
+  html += '<div class="text-[11px] text-gray-300 mb-0.5 truncate"><span class="text-gray-500">Нарушитель:</span> ' + esc(violator) + '</div>';
+  html += '<div class="text-[10px] text-gray-400 truncate mb-1" title="' + esc(reason) + '">' + esc(reason) + '</div>';
+  if (server) html += '<div class="text-[9px] text-gray-600 mb-1"><i class="ph ph-server mr-1"></i>' + esc(server) + '</div>';
+  if (createdStr) html += '<div class="text-[9px] text-gray-600">' + esc(createdStr) + '</div>';
   html += '</div>';
   return html;
 }
 
-function loadAllPlayers(reset) {
-  if (playersLoading) return;
-  playersLoading = true;
-  var listEl = document.getElementById("allPlayersList");
-  var pagingEl = document.getElementById("allPlayersPaging");
-  var totalEl = document.getElementById("allPlayersTotal");
-  if (reset) {
-    playersPage = 0;
-    playersTotal = 0;
-    listEl.innerHTML = '<div class="space-y-2"><div class="skeleton h-[120px]"></div><div class="skeleton h-[120px]"></div><div class="skeleton h-[120px]"></div></div>';
-    pagingEl.textContent = "";
+function renderGroupedReport(group) {
+  var steamid = group.intruder_steamid;
+  var name = group.intruder;
+  var avatar = group.intruder_avatar || '';
+  var fearUrl = "https://fearproject.ru/profile/" + steamid;
+  var count = group.reports.length;
+  var reasons = {};
+  group.reports.forEach(function(r) {
+    var reason = r.reason || 'Не указана';
+    reasons[reason] = (reasons[reason] || 0) + 1;
+  });
+  var latest = group.reports[0];
+  var latestTime = '';
+  if (latest.created_at) {
+    var d = new Date(latest.created_at);
+    if (!isNaN(d.getTime())) latestTime = d.toLocaleDateString("ru-RU") + ' ' + d.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"});
   }
-  var offset = playersPage * playersPageSize;
-  var url = "/api/all-profiles?limit=" + playersPageSize + "&offset=" + offset + "&sortBy=created_at&sortDir=DESC";
-  if (playersSearchQuery) url += "&search=" + encodeURIComponent(playersSearchQuery);
-  fetch(url).then(function(r){return r.json()}).then(function(data) {
-    playersLoading = false;
-    playersTotal = data.total || 0;
-    var rows = data.rows || [];
-    if (reset) listEl.innerHTML = "";
-    if (!rows.length && reset) { listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">Нет игроков</div>'; return; }
-    var fragment = document.createDocumentFragment();
-    rows.forEach(function(r) { var d = document.createElement("div"); d.innerHTML = renderPlayerCard(r); fragment.appendChild(d.firstElementChild); });
-    listEl.appendChild(fragment);
-    playersPage++;
-    if (pagingEl) pagingEl.textContent = Math.min(playersPage * playersPageSize, playersTotal) + " / " + playersTotal;
-    if (totalEl) totalEl.textContent = playersTotal;
+  var servers = {};
+  group.reports.forEach(function(r) {
+    var s = r.server_name || 'Неизвестно';
+    servers[s] = (servers[s] || 0) + 1;
+  });
+
+  var live = group.livePlayer || null;
+  var kills = live ? (live.kills || 0) : null;
+  var deaths = live ? (live.deaths || 0) : null;
+  var kd = deaths > 0 ? (kills / deaths).toFixed(2) : (kills > 0 ? kills.toFixed(1) : '-');
+
+  var defaultAvatar = "https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg";
+  var avatarUrl = avatar || defaultAvatar;
+
+  var html = '<div class="rounded-xl bg-white/[0.03] border border-amber-500/20 p-3 hover:border-amber-500/30 transition-colors">';
+  html += '<div class="flex items-start gap-2.5">';
+  html += '<img src="' + esc(avatarUrl) + '" class="w-9 h-9 rounded-full object-cover shrink-0" onerror="this.src=\'' + defaultAvatar + '\'">';
+  html += '<div class="flex-1 min-w-0">';
+  html += '<a href="' + fearUrl + '" target="_blank" class="text-[11px] font-semibold text-white truncate block hover:text-[#818cf8] transition-colors">' + esc(name) + '</a>';
+  html += '<div class="text-[9px] text-gray-500 font-mono">' + esc(steamid) + '</div>';
+  html += '</div>';
+  html += '<div class="shrink-0 text-right">';
+  html += '<span class="text-[11px] font-bold text-amber-400">' + count + '</span>';
+  html += '<span class="text-[9px] text-gray-500">' + (count === 1 ? ' репорт' : ' репортов') + '</span>';
+  html += '</div>';
+  html += '</div>';
+
+  if (live) {
+    html += '<div class="flex items-center gap-3 mt-2 px-1 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">';
+    html += '<span class="text-[9px] text-emerald-400 font-medium"><i class="ph ph-circle mr-1" style="font-size:5px;vertical-align:middle"></i>В катке</span>';
+    html += '<span class="text-[10px] text-white font-mono">' + kills + '/' + deaths + '</span>';
+    html += '<span class="text-[9px] text-gray-400">K/D <span class="text-emerald-400 font-semibold">' + kd + '</span></span>';
+    if (live.server_name) html += '<span class="text-[9px] text-gray-500"><i class="ph ph-server mr-0.5"></i>' + esc(live.server_name) + '</span>';
+    html += '</div>';
+  }
+
+  html += '<div class="mt-2 space-y-0.5">';
+  var reasonEntries = Object.entries(reasons).sort(function(a,b) { return b[1] - a[1]; });
+  reasonEntries.forEach(function(entry) {
+    html += '<div class="flex items-center justify-between text-[10px]">';
+    html += '<span class="text-gray-400 truncate">' + esc(entry[0]) + '</span>';
+    if (entry[1] > 1) html += '<span class="shrink-0 text-gray-600 ml-1">x' + entry[1] + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  var serverEntries = Object.entries(servers).sort(function(a,b) { return b[1] - a[1]; });
+  if (serverEntries.length) {
+    html += '<div class="mt-1.5 flex flex-wrap gap-1">';
+    serverEntries.forEach(function(entry) {
+      html += '<span class="text-[8px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">' + esc(entry[0]) + (entry[1] > 1 ? ' x' + entry[1] : '') + '</span>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="mt-1.5 text-[9px] text-gray-600">' + esc(latestTime) + '</div>';
+  html += '</div>';
+  return html;
+}
+
+function loadLivePlayers() {
+  var listEl = document.getElementById("allPlayersList");
+  var totalEl = document.getElementById("allPlayersTotal");
+  listEl.innerHTML = '<div class="space-y-1"><div class="skeleton h-[40px]"></div><div class="skeleton h-[40px]"></div><div class="skeleton h-[40px]"></div></div>';
+  fetch("/api/all-players-live").then(function(r){return r.json()}).then(function(data) {
+    livePlayersData = data.players || [];
+    totalEl.textContent = livePlayersData.length;
+    renderLivePlayersList();
   }).catch(function(err) {
-    playersLoading = false;
     listEl.innerHTML = '<div class="text-center text-red-400 text-xs py-4">Ошибка: ' + esc(err.message) + '</div>';
   });
+}
+
+function renderLivePlayersList() {
+  var listEl = document.getElementById("allPlayersList");
+  var q = livePlayersSearchQuery.toLowerCase();
+  var filtered = livePlayersData;
+  if (q) {
+    filtered = livePlayersData.filter(function(p) {
+      var name = (p.nickname || p.db_name || "").toLowerCase();
+      var sid = (p.steamid || "").toLowerCase();
+      return name.indexOf(q) !== -1 || sid.indexOf(q) !== -1;
+    });
+  }
+  filtered.sort(function(a, b) {
+    var ta = a.steam_timecreated || 0;
+    var tb = b.steam_timecreated || 0;
+    return tb - ta;
+  });
+  if (!filtered.length) {
+    listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">Нет игроков</div>';
+    return;
+  }
+  listEl.innerHTML = filtered.map(function(p) { return renderLivePlayerCard(p); }).join("");
 }
 
 function loadUnconfigured() {
@@ -1526,12 +1753,30 @@ function loadUnconfigured() {
 function loadActiveReports() {
   var el = document.getElementById("reportsList");
   var totalEl = document.getElementById("reportsTotal");
-  el.innerHTML = '<div class="space-y-2"><div class="skeleton h-[100px]"></div><div class="skeleton h-[100px]"></div></div>';
-  fetch("/api/active-reports").then(function(r){return r.json()}).then(function(d) {
-    var reports = d.reports || [];
+  el.innerHTML = '<div class="space-y-2"><div class="skeleton h-[100px]"></div></div>';
+  Promise.all([
+    fetch("/api/active-reports").then(function(r){return r.json()}),
+    fetch("/api/all-players-live").then(function(r){return r.json()})
+  ]).then(function(results) {
+    var reports = results[0].reports || [];
+    var players = results[1].players || [];
     totalEl.textContent = reports.length;
     if (!reports.length) { el.innerHTML = '<div class="text-center text-gray-500 text-[11px] py-4">Нет активных репортов</div>'; return; }
-    el.innerHTML = reports.map(function(r) { return renderReportCard(r); }).join("");
+    var liveMap = {};
+    players.forEach(function(p) { liveMap[p.steamid] = p; });
+    var groups = {};
+    reports.sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    reports.forEach(function(r) {
+      var key = r.intruder_steamid || r.intruder || ('_' + r.id);
+      if (!groups[key]) groups[key] = { intruder_steamid: r.intruder_steamid || '', intruder: r.intruder || '', intruder_avatar: r.intruder_avatar || '', reports: [] };
+      groups[key].reports.push(r);
+    });
+    var groupList = Object.values(groups);
+    groupList.forEach(function(g) {
+      if (g.intruder_steamid && liveMap[g.intruder_steamid]) g.livePlayer = liveMap[g.intruder_steamid];
+    });
+    groupList.sort(function(a, b) { return b.reports.length - a.reports.length; });
+    el.innerHTML = groupList.map(function(g) { return renderGroupedReport(g); }).join("");
   }).catch(function() { el.innerHTML = '<div class="text-center text-gray-500 text-[11px] py-4">Ошибка загрузки</div>'; });
 }
 
@@ -1542,8 +1787,8 @@ if (playersSearchInput) {
     clearTimeout(playersSearchTimeout);
     var q = this.value.trim();
     playersSearchTimeout = setTimeout(function() {
-      playersSearchQuery = q;
-      loadAllPlayers(true);
-    }, 300);
+      livePlayersSearchQuery = q;
+      renderLivePlayersList();
+    }, 200);
   });
 }

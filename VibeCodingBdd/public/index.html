@@ -373,13 +373,18 @@
                             <div id="adminLoginLogs" class="space-y-1"></div>
                         </div>
                     </div>
+
+                    <div class="glass-panel rounded-xl p-4 mt-4">
+                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-arrow-circle-right text-amber-400"></i> Ожидают выдачи Discord роли</h3>
+                        <div id="adminPendingRoles" class="space-y-1"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- Tab: Analytics -->
             <div id="tab-analytics" class="tab-content">
                 <div class="scroll-panel p-4">
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" id="analyticsStats"></div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4" id="analyticsStats"></div>
                     <div class="glass-panel rounded-xl p-4 mb-4">
                         <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-chart-line-up text-[#5865F2]"></i> Онлайн по часам</h3>
                         <div id="analyticsOnlineChart" class="h-[200px] relative"></div>
@@ -424,8 +429,7 @@
                                     class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#5865F2]/50">
                             </div>
                         </div>
-                        <div id="allPlayersList" class="flex-1 overflow-y-auto space-y-2"></div>
-                        <div class="mt-2 text-center shrink-0"><span id="allPlayersPaging" class="text-[10px] text-gray-600"></span></div>
+                        <div id="allPlayersList" class="flex-1 overflow-y-auto space-y-1"></div>
                     </div>
                     <!-- Col 2: Unconfigured -->
                     <div class="w-[280px] flex flex-col shrink-0">

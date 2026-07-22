@@ -140,6 +140,7 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE site_users ADD COLUMN IF NOT EXISTS pending_discord_role TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS site_sessions (
@@ -226,6 +227,13 @@ async function initDb() {
       [t.id, t.min]
     );
   }
+  // Новые вкладки — UPSERT чтобы добавить в существующую БД
+  for (const t of [{ id: 'analytics', min: 7 }, { id: 'players', min: 7 }]) {
+    await pool.query(
+      `INSERT INTO tab_access (tab_id, min_role_rank, enabled) VALUES ($1, $2, TRUE) ON CONFLICT (tab_id) DO UPDATE SET min_role_rank = LEAST(tab_access.min_role_rank, EXCLUDED.min_role_rank), enabled = TRUE`,
+      [t.id, t.min]
+    );
+  }
   await pool.query(`INSERT INTO owners (steamid, added_by) VALUES ($1, 'seed') ON CONFLICT (steamid) DO NOTHING`, ['76561198675051863']);
 
   await pool.query(`
@@ -271,6 +279,23 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_drop_log_ts ON drop_log(created_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_drop_log_steamid ON drop_log(steamid)`);
+
+  await seedTestUsers();
+}
+
+async function seedTestUsers() {
+  try {
+    const existing = await pool.query(`SELECT id FROM site_users WHERE username = 'tester'`);
+    if (existing.rows.length === 0) {
+      const { hash, salt } = hashPassword('F123123F');
+      await pool.query(
+        `INSERT INTO site_users (username, password_hash, password_salt, role, is_active)
+         VALUES ($1, $2, $3, 'user', TRUE)`,
+        ['tester', hash, salt]
+      );
+      console.log('Seeded tester account');
+    }
+  } catch (e) { console.error('seedTestUsers error:', e.message); }
 }
 
 async function createRefreshRun() {

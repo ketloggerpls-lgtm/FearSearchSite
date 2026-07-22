@@ -274,11 +274,30 @@ async def role_sync_loop():
                     "steamid": sid,
                     "name": admin.get("name", admin.get("nickname", "Админ")),
                     "group_name": admin.get("group_name", "ADMIN"),
-                    "discord_id": admin.get("discord_id")
+                    "discord_id": admin.get("discord_id"),
+                    "discord_name": admin.get("discord_nickname", "")
                 }
         
         if all_db:
             await _sync_staff_roles(all_db)
+            # Сохраняем обратно resolved discord_id в staff_db и admins_cache
+            changed = False
+            for sid, entry in all_db.items():
+                if entry.get("discord_id"):
+                    if sid in staff_db and staff_db[sid].get("discord_id") != entry["discord_id"]:
+                        staff_db[sid]["discord_id"] = entry["discord_id"]
+                        changed = True
+                    # Обновляем admins_cache тоже
+                    for admin in all_admins:
+                        if admin.get("steamid") == sid and admin.get("discord_id") != entry["discord_id"]:
+                            admin["discord_id"] = entry["discord_id"]
+                            changed = True
+            if changed:
+                _save_staff_db(staff_db)
+                _save_admins_cache(all_admins)
+
+        # Синхронизируем роли пользователей сайта
+        await _sync_site_users_roles()
     except Exception as e:
         _log(f"⚠️ [ROLE SYNC] Ошибка: {e}")
 
@@ -286,7 +305,52 @@ async def role_sync_loop():
 async def before_role_sync():
     await bot.wait_until_ready()
 
-# В on_ready добавить запуск: staff_status_refresh_loop.start() и role_sync_loop.start()
+async def _sync_site_users_roles():
+    """Синхронизирует Discord роли для пользователей сайта у которых есть pending_discord_role."""
+    if not SITE_API_URL or not SITE_API_SECRET:
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{SITE_API_URL}/api/admin/users/pending-roles",
+                headers={"Authorization": f"Bearer {SITE_API_SECRET}"}
+            ) as resp:
+                if resp.status != 200:
+                    return
+                data = await resp.json()
+                users = data.get("users", [])
+                for u in users:
+                    discord_id = u.get("discord_id")
+                    pending_role = u.get("pending_discord_role")
+                    if not discord_id or not pending_role:
+                        continue
+                    # Находим Discord ID роли
+                    role_id = None
+                    for rid, label in DISCORD_ROLE_LABELS.items():
+                        if label == pending_role:
+                            role_id = rid
+                            break
+                    if not role_id:
+                        continue
+                    for guild in bot.guilds:
+                        try:
+                            member = guild.get_member(int(discord_id))
+                            if not member:
+                                member = await guild.fetch_member(int(discord_id))
+                            if member:
+                                role = guild.get_role(int(role_id))
+                                if role and role not in member.roles:
+                                    await member.add_roles(role, reason=f"Синхронизация роли с сайта: {pending_role}")
+                                    _log(f"🎭 [SITE ROLE] {member.name}: выдана роль {pending_role}")
+                                    # Очищаем pending_discord_role
+                                    await session.post(
+                                        f"{SITE_API_URL}/api/admin/users/{u['id']}/clear-pending-role",
+                                        headers={"Authorization": f"Bearer {SITE_API_SECRET}"}
+                                    )
+                        except Exception as e:
+                            _log(f"⚠️ [SITE ROLE] Ошибка для {discord_id}: {e}")
+    except Exception as e:
+        _log(f"⚠️ [SITE ROLE SYNC] Ошибка: {e}")
 
 SUSPICIOUS_PANEL_FILE = Path(__file__).parent / "suspicious_panel.json"
 NEWBIES_PANEL_FILE    = Path(__file__).parent / "newbies_panel.json"
@@ -3137,6 +3201,29 @@ def _get_staff_by_discord_name(name: str) -> dict | None:
             return {**entry, "steamid": sid}
     return None
 
+def _find_member_by_nickname(guild: discord.Guild, nickname: str) -> discord.Member | None:
+    """Находит участника гильдии по Discord нику/логину."""
+    if not nickname:
+        return None
+    nick_lower = nickname.lower().strip()
+    # Прямое сравнение
+    for member in guild.members:
+        if not member.bot and (
+            (member.nick and member.nick.lower() == nick_lower)
+            or member.name.lower() == nick_lower
+            or (member.global_name and member.global_name.lower() == nick_lower)
+        ):
+            return member
+    # Fuzzy: ник содержит запрос или наоборот
+    for member in guild.members:
+        if not member.bot and (
+            nick_lower in (member.nick or "").lower()
+            or nick_lower in member.name.lower()
+            or nick_lower in (member.global_name or "").lower()
+        ):
+            return member
+    return None
+
 def _load_staffboard() -> dict:
     if STAFFBOARD_FILE.exists():
         try:
@@ -4371,11 +4458,6 @@ def _build_staff_punish_embed(state: dict, new_bans: int, new_mutes: int) -> dis
 
 @tasks.loop(minutes=1)
 async def staff_punish_scan_loop():
-    panel = _load_staff_punish_panel()
-    channel_id = panel.get("channel_id")
-    message_id = panel.get("message_id")
-    if not channel_id or not message_id:
-        return
     if not FEAR_COOKIE:
         return
 
@@ -4383,23 +4465,6 @@ async def staff_punish_scan_loop():
     if not staff_ids:
         return
 
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        try:
-            channel = await bot.fetch_channel(channel_id)
-        except Exception:
-            return
-
-    msg = None
-    try:
-        msg = await channel.fetch_message(message_id)
-    except discord.NotFound:
-        msg = await _find_panel_in_history(channel, "Мониторинг наказаний стаффа", limit=200)
-        if msg:
-            _save_staff_punish_panel(channel.id, msg.id)
-    except Exception:
-        pass
-    
     async with _staff_punish_scan_lock:
         async with aiohttp.ClientSession() as session:
             new_bans, new_mutes, state = await _staff_punish_scan_update_cache(session, staff_ids)
@@ -4421,20 +4486,44 @@ async def staff_punish_scan_loop():
             lines.append(f"🔇 **{admin}** → **{name}** `{_dur_str(m.get('duration', 0))}` { _short_reason(m.get('reason','')) } (id {m.get('id')})")
         if lines:
             out = "\n".join(lines[:20])
-            # Отправляем лог в специальный канал логов наказаний
             log_ch = bot.get_channel(STAFF_PUNISH_LOG_CHANNEL_ID)
+            if not log_ch:
+                try:
+                    log_ch = await bot.fetch_channel(STAFF_PUNISH_LOG_CHANNEL_ID)
+                except Exception:
+                    log_ch = None
             if log_ch:
-                await log_ch.send(out)
-            else:
-                # Если лог-канал не найден, отправляем в канал панели как раньше (fallback)
-                await channel.send(out)
+                try:
+                    await log_ch.send(out)
+                except Exception:
+                    pass
 
-    if msg:
-        embed = _build_staff_punish_embed(state, len(new_bans), len(new_mutes))
+    # Обновляем панель мониторинга если она есть
+    panel = _load_staff_punish_panel()
+    channel_id = panel.get("channel_id")
+    message_id = panel.get("message_id")
+    if channel_id and message_id:
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except Exception:
+                return
+        msg = None
         try:
-            await msg.edit(embed=embed)
+            msg = await channel.fetch_message(message_id)
+        except discord.NotFound:
+            msg = await _find_panel_in_history(channel, "Мониторинг наказаний стаффа", limit=200)
+            if msg:
+                _save_staff_punish_panel(channel.id, msg.id)
         except Exception:
             pass
+        if msg:
+            embed = _build_staff_punish_embed(state, len(new_bans), len(new_mutes))
+            try:
+                await msg.edit(embed=embed)
+            except Exception:
+                pass
 
 @tree.command(name="global_history_sync", description="Собрать ВСЮ историю банов/мутов проекта с 01.01.2026")
 async def cmd_global_history_sync(interaction: discord.Interaction):
@@ -8518,6 +8607,17 @@ async def _sync_staff_roles(staff_db: dict):
     """Синхронизирует Discord роли для стаффа на основе их группы на сайте."""
     for sid, entry in staff_db.items():
         d_id = entry.get("discord_id")
+        d_name = entry.get("discord_name") or ""
+        
+        # Если нет discord_id, пытаемся найти по нику
+        if not d_id and d_name and bot.guilds:
+            for guild in bot.guilds:
+                member = _find_member_by_nickname(guild, d_name)
+                if member:
+                    d_id = str(member.id)
+                    entry["discord_id"] = d_id
+                    break
+        
         if not d_id:
             continue
             
@@ -8665,6 +8765,14 @@ async def _sync_discord_data(sync_all: bool = False) -> dict:
                 d_id = str(discord_data.get("id") or profile.get("providerUserId") or "")
                 d_name = discord_data.get("nickname") or profile.get("discordNickname") or ""
                 
+                # Если API не вернул discord.id (null), ищем участника по нику
+                if not d_id and d_name and bot.guilds:
+                    for guild in bot.guilds:
+                        member = _find_member_by_nickname(guild, d_name)
+                        if member:
+                            d_id = str(member.id)
+                            break
+
                 changed = False
                 # 1. В admins_cache
                 if d_id and admin_entry.get("discord_id") != d_id:
@@ -8798,6 +8906,32 @@ async def _initial_sync():
         else:
             _log(f"🔄 Синхронизация ролей для {len(db)} стаффов...", discord=False)
             await _sync_staff_roles(db)
+
+        # Прогрев кэша наказаний — сбрасываем scan state чтобы первый scan заполнил кэши
+        _log("🔄 Сброс scan state для прогрева кэша наказаний...", discord=False)
+        _save_punishments_scan_state({"last_ban_id": 0, "last_mute_id": 0, "last_full_refresh": ""})
+        _save_staff_punish_state({"last_ban_id": 0, "last_mute_id": 0})
+
+        # Запускаем прогрев кэша в фоне — первый staff_status_refresh_loop (30 мин) может не успеть
+        async def _warmup_caches():
+            await asyncio.sleep(60)  # Ждём пока staff_punish_scan_loop сделает первый проход
+            _log("🔥 [WARMUP] Запуск прогрева кэша наказаний...", discord=False)
+            try:
+                staff_db = _load_staff_db()
+                if not staff_db: return
+                async with aiohttp.ClientSession() as session:
+                    for i, (sid, entry) in enumerate(staff_db.items(), 1):
+                        try:
+                            await _update_cache_for_staff(session, {"steamid": sid, "name": entry.get("name", sid)})
+                        except Exception as e:
+                            _log(f"⚠️ [WARMUP] Ошибка кэша {sid}: {e}")
+                        await asyncio.sleep(0.3)
+                        if i % 10 == 0:
+                            _log(f"  ⏳ [WARMUP] Прогрев: {i}/{len(staff_db)}...")
+                _log("✅ [WARMUP] Прогрев кэша наказаний завершён.")
+            except Exception as e:
+                _log(f"⚠️ [WARMUP] Ошибка: {e}")
+        asyncio.create_task(_warmup_caches())
             
         # Запускаем мониторинг подозрительных игроков
         if not suspicious_monitor_loop.is_running():
@@ -8960,7 +9094,7 @@ async def _resolve_level_from_discord_roles(discord_id: str) -> int:
 
 
 async def _resolve_discord_id_by_steam(steam_id: str) -> str | None:
-    """Ищет Discord ID по Steam ID через локальные базы админов."""
+    """Ищет Discord ID по Steam ID через локальные базы админов + guild member search по нику."""
     # 1. Сначала в staff_db
     staff_db = _load_staff_db()
     for sid, entry in staff_db.items():
@@ -8968,6 +9102,16 @@ async def _resolve_discord_id_by_steam(steam_id: str) -> str | None:
             did = str(entry.get("discord_id") or "").strip()
             if did and did != "—":
                 return did
+            # Если discord_id пуст, пробуем найти по нику
+            d_name = entry.get("discord_name") or ""
+            if d_name and bot.guilds:
+                for guild in bot.guilds:
+                    member = _find_member_by_nickname(guild, d_name)
+                    if member:
+                        entry["discord_id"] = str(member.id)
+                        staff_db[sid]["discord_id"] = str(member.id)
+                        _save_staff_db(staff_db)
+                        return str(member.id)
 
     # 2. В кэше админов
     admins = _load_admins_cache()
@@ -9061,49 +9205,66 @@ async def on_member_join(member: discord.Member):
     _log(f"👋 [JOIN] Участник {member.name} ({d_id}) зашел на сервер. Проверяю статус...")
     
     db = _load_staff_db()
-    # 1. Сначала ищем в локальной базе стаффа
+    # 1. Сначала ищем в локальной базе стаффа по discord_id
     staff_entry = next((e for sid, e in db.items() if e.get("discord_id") == d_id), None)
+    
+    if not staff_entry:
+        # 1b. Ищем по Discord нику (API может не вернуть discord.id)
+        member_name = (member.nick or member.name or "").lower()
+        staff_entry = next((e for sid, e in db.items()
+            if member_name and (
+                (e.get("discord_name") or "").lower() == member_name
+                or member_name in (e.get("discord_name") or "").lower()
+            )), None)
+        if staff_entry:
+            sid = next(sid for sid, e in db.items() if e is staff_entry)
+            staff_entry["discord_id"] = d_id
+            db[sid]["discord_id"] = d_id
+            _save_staff_db(db)
     
     if staff_entry:
         sid = next(sid for sid, e in db.items() if e.get("discord_id") == d_id)
         _log(f"✅ [JOIN] Нашел в базе стаффа: {member.name} ({sid}). Синхронизирую роли...")
         await _sync_staff_roles({sid: staff_entry})
     else:
-        # 2. Если в базе нет, пробуем найти через поиск админов (по Discord ID)
-        _log(f"🔍 [JOIN] {member.name} нет в локальной базе стаффа. Ищу через API Fear...")
+        # 2. Если в базе нет, пробуем найти через кэш админов (по Discord ID или нику)
+        _log(f"🔍 [JOIN] {member.name} нет в локальной базе стаффа. Ищу в кэше админов...")
         
-        async with aiohttp.ClientSession() as session:
-            # Используем поиск по админам, так как обычный профиль по d_id найти сложно
-            # Но у нас есть список всех админов в кэше, проверим его
-            all_admins = _load_admins_cache()
-            admin_entry = next((a for a in all_admins if str(a.get("discord_id")) == d_id), None)
+        all_admins = _load_admins_cache()
+        member_name = (member.nick or member.name or "").lower()
+        admin_entry = next((a for a in all_admins if str(a.get("discord_id")) == d_id), None)
+        if not admin_entry and member_name:
+            admin_entry = next((a for a in all_admins
+                if member_name and (
+                    (a.get("discord_nickname") or "").lower() == member_name
+                    or member_name in (a.get("discord_nickname") or "").lower()
+                )), None)
+        
+        if admin_entry:
+            sid = admin_entry.get("steamid")
+            group = admin_entry.get("group_name", "UNDEFINED")
+            _log(f"✅ [JOIN] Нашел в кэше админов: {member.name} ({sid}), группа: {group}")
             
-            if admin_entry:
-                sid = admin_entry.get("steamid")
-                group = admin_entry.get("group_name", "UNDEFINED")
-                _log(f"✅ [JOIN] Нашел в кэше админов: {member.name} ({sid}), группа: {group}")
-                
-                # Создаем временную запись для синхронизации ролей
-                temp_db = {
-                    sid: {
-                        "discord_id": d_id,
-                        "group_name": group,
-                        "name": admin_entry.get("name", member.name)
-                    }
+            # Создаем временную запись для синхронизации ролей
+            temp_db = {
+                sid: {
+                    "discord_id": d_id,
+                    "group_name": group,
+                    "name": admin_entry.get("name", member.name)
                 }
-                await _sync_staff_roles(temp_db)
-            else:
-                # 3. Если и там нет - значит прав нет, выдаем роль "Не определен"
-                _log(f"❓ [JOIN] {member.name} не найден как стафф. Выдаю роль 'Не определен'...")
-                # Создаем фейковую запись для _sync_staff_roles, чтобы она выдала UNDEFINED
-                temp_db = {
-                    "unknown": {
-                        "discord_id": d_id,
-                        "group_name": "NONE",
-                        "name": member.name
-                    }
+            }
+            await _sync_staff_roles(temp_db)
+        else:
+            # 3. Если и там нет - значит прав нет, выдаем роль "Не определен"
+            _log(f"❓ [JOIN] {member.name} не найден как стафф. Выдаю роль 'Не определен'...")
+            temp_db = {
+                "unknown": {
+                    "discord_id": d_id,
+                    "group_name": "NONE",
+                    "name": member.name
                 }
-                await _sync_staff_roles(temp_db)
+            }
+            await _sync_staff_roles(temp_db)
 
 @bot.event
 async def on_ready():
@@ -9327,6 +9488,33 @@ async def on_ready():
                     _save_suspicious_panel(ch.id, msg.id)
     except Exception as e:
         _log(f"⚠️ Ошибка восстановления Suspicious панели: {e}", discord=False)
+
+    # Staff Punish Panel (мониторинг наказаний)
+    try:
+        spp = _load_staff_punish_panel()
+        spp_ch_id = spp.get("channel_id")
+        spp_msg_id = spp.get("message_id")
+        if spp_ch_id:
+            ch = bot.get_channel(spp_ch_id)
+            if not ch:
+                try: ch = await bot.fetch_channel(spp_ch_id)
+                except: pass
+            if ch:
+                msg = None
+                if spp_msg_id:
+                    try: msg = await ch.fetch_message(spp_msg_id)
+                    except discord.NotFound: pass
+                if not msg:
+                    try:
+                        msg = await _find_panel_in_history(ch, "Мониторинг наказаний стаффа", limit=200)
+                    except: pass
+                if msg:
+                    _save_staff_punish_panel(ch.id, msg.id)
+                    _log(f"✅ StaffPunish панель привязана к сообщению {msg.id} в #{ch.name}", discord=False)
+                else:
+                    _log(f"ℹ️ StaffPunish панель не найдена в #{ch.name} — будет обновлён при следующем скане", discord=False)
+    except Exception as e:
+        _log(f"⚠️ Ошибка восстановления StaffPunish панели: {e}", discord=False)
 
     # Очистка мусора из all_punishments_log.json при старте
     try:

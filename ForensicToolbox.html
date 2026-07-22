@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forensic Toolbox - Навигатор по инструментам</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; }
+        .sidebar { width: 300px; background: #161b22; height: 100vh; overflow-y: auto; border-right: 1px solid #30363d; position: fixed; }
+        .sidebar h2 { padding: 15px; background: #1f6feb; color: white; font-size: 18px; text-align: center; position: sticky; top: 0; z-index: 100; }
+        .sidebar ul { list-style: none; }
+        .sidebar ul li { border-bottom: 1px solid #30363d; }
+        .sidebar ul li a { display: block; padding: 10px 15px; color: #c9d1d9; text-decoration: none; transition: 0.2s; font-size: 14px; }
+        .sidebar ul li a:hover { background: #1f6feb33; color: #58a6ff; }
+        .sidebar ul li a.active { background: #1f6feb44; border-left: 3px solid #58a6ff; }
+        .sidebar .category { padding: 10px 15px; background: #21262d; color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .main { margin-left: 300px; padding: 30px; width: calc(100% - 300px); }
+        .section { display: none; max-width: 900px; }
+        .section.active { display: block; }
+        h1 { color: #58a6ff; border-bottom: 2px solid #1f6feb; padding-bottom: 10px; margin-bottom: 20px; }
+        h2 { color: #79c0ff; margin: 20px 0 10px; }
+        h3 { color: #d2a8ff; margin: 15px 0 8px; }
+        p { line-height: 1.6; margin-bottom: 10px; }
+        .code-block { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; margin: 10px 0; font-family: 'Consolas', monospace; font-size: 13px; overflow-x: auto; color: #79c0ff; }
+        .filter-block { background: #1c2128; border-left: 3px solid #f0883e; padding: 12px 15px; margin: 10px 0; border-radius: 0 6px 6px 0; }
+        .filter-block .name { color: #f0883e; font-weight: bold; margin-bottom: 5px; }
+        .step { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 15px; margin: 10px 0; }
+        .step .num { color: #58a6ff; font-weight: bold; font-size: 18px; }
+        .warn { background: #1c1410; border-left: 3px solid #d29922; padding: 10px 15px; margin: 10px 0; border-radius: 0 6px 6px 0; }
+        .info { background: #0d1d31; border-left: 3px solid #1f6feb; padding: 10px 15px; margin: 10px 0; border-radius: 0 6px 6px 0; }
+        .success { background: #0d2818; border-left: 3px solid #3fb950; padding: 10px 15px; margin: 10px 0; border-radius: 0 6px 6px 0; }
+        .link { color: #58a6ff; text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #30363d; padding: 8px 12px; text-align: left; font-size: 13px; }
+        th { background: #161b22; color: #58a6ff; }
+        td { background: #0d1117; }
+        .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin: 15px 0; }
+        .tool-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 15px; transition: 0.2s; }
+        .tool-card:hover { border-color: #58a6ff; transform: translateY(-2px); }
+        .tool-card h4 { color: #58a6ff; margin-bottom: 8px; font-size: 14px; }
+        .tool-card p { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+        .tag { display: inline-block; background: #1f6feb33; color: #58a6ff; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
+        .usn-table { font-size: 12px; }
+        .usn-table td:first-child { color: #f0883e; font-family: monospace; width: 180px; }
+        pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12px; color: #c9d1d9; }
+        @media (max-width: 900px) {
+            .sidebar { width: 100%; height: auto; position: relative; }
+            .main { margin-left: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>🔍 Forensic Toolbox</h2>
+    <ul>
+        <div class="category">Основные инструменты</div>
+        <li><a href="#" onclick="showSection('journaltrace')" id="nav-journaltrace">JournalTrace</a></li>
+        <li><a href="#" onclick="showSection('systeminformer')" id="nav-systeminformer">System Informer</a></li>
+        <li><a href="#" onclick="showSection('winprefetchview')" id="nav-winprefetchview">WinPrefetchView</a></li>
+        <li><a href="#" onclick="showSection('shellbags')" id="nav-shellbags">Shellbags</a></li>
+        <li><a href="#" onclick="showSection('eventlog')" id="nav-eventlog">EventLog</a></li>
+
+        <div class="category">System Informer Процессы</div>
+        <li><a href="#" onclick="showSection('process-cdpusersvc')" id="nav-process-cdpusersvc">Cdpusersvc</a></li>
+        <li><a href="#" onclick="showSection('process-dnscache')" id="nav-process-dnscache">DnsCache</a></li>
+        <li><a href="#" onclick="showSection('process-power')" id="nav-process-power">Power/PlugPlay/DCOMLaunch</a></li>
+        <li><a href="#" onclick="showSection('process-dps')" id="nav-process-dps">DPS</a></li>
+        <li><a href="#" onclick="showSection('process-diagtrack')" id="nav-process-diagtrack">DiagTrack</a></li>
+        <li><a href="#" onclick="showSection('process-pcasvc')" id="nav-process-pcasvc">PcaSvc</a></li>
+        <li><a href="#" onclick="showSection('process-ctfmon')" id="nav-process-ctfmon">CTFMON</a></li>
+        <li><a href="#" onclick="showSection('process-csrss')" id="nav-process-csrss">csrss</a></li>
+        <li><a href="#" onclick="showSection('process-explorer')" id="nav-process-explorer">Explorer</a></li>
+        <li><a href="#" onclick="showSection('process-appinfo')" id="nav-process-appinfo">AppInfo</a></li>
+        <li><a href="#" onclick="showSection('process-msmpeng')" id="nav-process-msmpeng">MsMpEng</a></li>
+        <li><a href="#" onclick="showSection('process-telegram')" id="nav-process-telegram">Telegram</a></li>
+        <li><a href="#" onclick="showSection('process-dllhost')" id="nav-process-dllhost">DllHost</a></li>
+
+        <div class="category">Eric Zimmerman Tools</div>
+        <li><a href="#" onclick="showSection('mftecmd')" id="nav-mftecmd">MFTECmd</a></li>
+        <li><a href="#" onclick="showSection('amcacheparser')" id="nav-amcacheparser">AmcacheParser</a></li>
+
+        <div class="category">Spokwn Tools</div>
+        <li><a href="#" onclick="showSection('journaltrace-spokwn')" id="nav-journaltrace-spokwn">JournalTrace++</a></li>
+        <li><a href="#" onclick="showSection('activitescache')" id="nav-activitescache">ActivitiesCache-execution</a></li>
+        <li><a href="#" onclick="showSection('prefetchparser')" id="nav-prefetchparser">PrefetchParser</a></li>
+        <li><a href="#" onclick="showSection('processparser')" id="nav-processparser">ProcessParser</a></li>
+        <li><a href="#" onclick="showSection('pcasvc-executed')" id="nav-pcasvc-executed">PcaSvc</a></li>
+        <li><a href="#" onclick="showSection('espouken-tool')" id="nav-espouken-tool">Espouken Tool</a></li>
+        <li><a href="#" onclick="showSection('bamparser')" id="nav-bamparser">BamParser</a></li>
+        <li><a href="#" onclick="showSection('pathsparser')" id="nav-pathsparser">PathsParser</a></li>
+        <li><a href="#" onclick="showSection('kernellivedumptool')" id="nav-kernellivedumptool">KernelLiveDumpTool</a></li>
+
+        <div class="category">Orbdiff Tools</div>
+        <li><a href="#" onclick="showSection('prefetchviewpp')" id="nav-prefetchviewpp">PrefetchView++</a></li>
+        <li><a href="#" onclick="showSection('mtfparser')" id="nav-mtfparser">MTFParser</a></li>
+        <li><a href="#" onclick="showSection('userassistview')" id="nav-userassistview">UserAssistView</a></li>
+        <li><a href="#" onclick="showSection('usnjournalcli')" id="nav-usnjournalcli">USNJournal_CLI</a></li>
+        <li><a href="#" onclick="showSection('usbdetector')" id="nav-usbdetector">USBDetector</a></li>
+        <li><a href="#" onclick="showSection('pftrace')" id="nav-pftrace">PFTrace</a></li>
+        <li><a href="#" onclick="showSection('injgen')" id="nav-injgen">InjGen</a></li>
+        <li><a href="#" onclick="showSection('jarparser')" id="nav-jarparser">JarParser</a></li>
+        <li><a href="#" onclick="showSection('checkdeletedusn')" id="nav-checkdeletedusn">CheckDeletedUSN</a></li>
+        <li><a href="#" onclick="showSection('dpsanalyzer')" id="nav-dpsanalyzer">DPS Analyzer</a></li>
+        <li><a href="#" onclick="showSection('stringsparser')" id="nav-stringsparser">StringsParser</a></li>
+        <li><a href="#" onclick="showSection('fileless')" id="nav-fileless">Fileless</a></li>
+
+        <div class="category">Detect.ac Tools</div>
+        <li><a href="#" onclick="showSection('amcacheparserpp')" id="nav-amcacheparserpp">AmcacheParser++</a></li>
+        <li><a href="#" onclick="showSection('bamparserpp')" id="nav-bamparserpp">BamParser++</a></li>
+        <li><a href="#" onclick="showSection('browsinghistoryviewpp')" id="nav-browsinghistoryviewpp">BrowsingHistoryView++</a></li>
+        <li><a href="#" onclick="showSection('crashedfileviewerpp')" id="nav-crashedfileviewerpp">CrashedFileViewer++</a></li>
+        <li><a href="#" onclick="showSection('journaltracepp')" id="nav-journaltracepp">JournalTrace++</a></li>
+        <li><a href="#" onclick="showSection('kernellivedumppp')" id="nav-kernellivedumppp">KernelLiveDump++</a></li>
+        <li><a href="#" onclick="showSection('mftexplorerpp')" id="nav-mftexplorerpp">MFTExplorer++</a></li>
+        <li><a href="#" onclick="showSection('pathsparserpp')" id="nav-pathsparserpp">PathsParser++</a></li>
+        <li><a href="#" onclick="showSection('powershellparserpp')" id="nav-powershellparserpp">PowerShellParser++</a></li>
+        <li><a href="#" onclick="showSection('srumexplorerpp')" id="nav-srumexplorerpp">SRUMExplorer++</a></li>
+        <li><a href="#" onclick="showSection('savedfilesviewerpp')" id="nav-savedfilesviewerpp">SavedFilesViewer++</a></li>
+        <li><a href="#" onclick="showSection('usbdeviewpp')" id="nav-usbdeviewpp">USBDeview++</a></li>
+        <li><a href="#" onclick="showSection('winprefetchviewpp')" id="nav-winprefetchviewpp">WinPrefetchView++</a></li>
+        <li><a href="#" onclick="showSection('moss')" id="nav-moss">MOSS 2.0</a></li>
+        <li><a href="#" onclick="showSection('stringexplorerpp')" id="nav-stringexplorerpp">StringExplorer++</a></li>
+        <li><a href="#" onclick="showSection('autorunspp')" id="nav-autorunspp">AutoRuns++</a></li>
+        <li><a href="#" onclick="showSection('executedprogramslist')" id="nav-executedprogramslist">ExecutedProgramsList</a></li>
+
+        <div class="category">Дополнительно</div>
+        <li><a href="#" onclick="showSection('pcageneral')" id="nav-pcageneral">PcaGeneral</a></li>
+        <li><a href="#" onclick="showSection('anydesk')" id="nav-anydesk">AnyDesk</a></li>
+        <li><a href="#" onclick="showSection('defender-support')" id="nav-defender-support">Defender Support Logger</a></li>
+        <li><a href="#" onclick="showSection('dma')" id="nav-dma">DMA</a></li>
+        <li><a href="#" onclick="showSection('fileless-execute')" id="nav-fileless-execute">Fileless Execution Detect</a></li>
+        <li><a href="#" onclick="showSection('pcageneral-dps')" id="nav-pcageneral-dps">PcaGeneral DPS фильтр</a></li>
+        <li><a href="#" onclick="showSection('private-methods')" id="nav-private-methods">Private Methods</a></li>
+    </ul>
+</div>
+
+<div class="main">
+
+<!-- ==================== JOURNALTRACE ==================== -->
+<div class="section" id="journaltrace">
+    <h1>JournalTrace</h1>
+    <p>JournalTrace – программа, которая позволяет обнаружить любые действия на компьютере: перемещение, удаление или переименование файлов/папок.</p>
+
+    <h2>Как начать пользоваться</h2>
+    <div class="step"><span class="num">1</span> Нажмите "Drive" > "Select" > C:\ > "Select"</div>
+    <div class="step"><span class="num">2</span> Нажмите опять "Drive" > "Scan"</div>
+    <div class="step"><span class="num">3</span> Дождитесь зеленой полоски и сообщения "All done!"</div>
+    <div class="step"><span class="num">4</span> Нажмите "Layout" и выберите "Data Grid" или "Directory Tree"</div>
+
+    <h2>Типы сортировки</h2>
+
+    <div class="info">
+        <strong>Data Grid</strong> – помогает находить файлы по имени или папке. Есть фильтры: Directory, Name.
+        <br><br>
+        <strong>Directory</strong> – ищет исключительно по директориям. Вставляем под этот фильтр "Адрес папки", пример: <code>C:\Users\System32\Desktop\</code> и выбираем "Directory". По фильтру "Name" Вы там ничего не найдёте.
+    </div>
+
+    <div class="info">
+        <strong>Directory Tree</strong> – подходит для просмотра папок, которые расположены возле C:\ > $Recycle.Bin, downloads, prefetch.
+    </div>
+
+    <h2>USN Reason (причины)</h2>
+    <table class="usn-table">
+        <tr><th>Код</th><th>Описание</th></tr>
+        <tr><td>DATA_OVERWRITE (0x00000001)</td><td>Данные файла были перезаписаны</td></tr>
+        <tr><td>DATA_EXTEND (0x00000002)</td><td>Данные файла были расширены (увеличен размер)</td></tr>
+        <tr><td>DATA_TRUNCATION (0x00000004)</td><td>Данные файла были усечены (уменьшен размер)</td></tr>
+        <tr><td>FILE_CREATE (0x00000100)</td><td>Файл или каталог был создан</td></tr>
+        <tr><td>FILE_DELETE (0x00000200)</td><td>Файл или каталог был удален</td></tr>
+        <tr><td>EA_CHANGE (0x00000400)</td><td>Изменены расширенные атрибуты файла</td></tr>
+        <tr><td>RENAME_OLD_NAME (0x00001000)</td><td>Файл или каталог переименован или перемещен (старое имя/путь)</td></tr>
+        <tr><td>RENAME_NEW_NAME (0x00002000)</td><td>Файл или каталог переименован или перемещен (новое имя/путь)</td></tr>
+        <tr><td>INDEXABLE_CHANGE (0x00004000)</td><td>Изменены атрибуты, влияющие на индексацию</td></tr>
+        <tr><td>BASIC_INFO_CHANGE (0x00008000)</td><td>Изменены основные атрибуты или метки времени</td></tr>
+        <tr><td>HARD_LINK_CHANGE (0x00010000)</td><td>Добавлена или удалена жесткая ссылка</td></tr>
+        <tr><td>COMPRESSION_CHANGE (0x00020000)</td><td>Изменен алгоритм сжатия файла</td></tr>
+        <tr><td>ENCRYPTION_CHANGE (0x00040000)</td><td>Изменено шифрование файла</td></tr>
+        <tr><td>OBJECT_ID_CHANGE (0x00080000)</td><td>Изменен идентификатор объекта</td></tr>
+        <tr><td>STREAM_CHANGE (0x00200000)</td><td>Добавлен или удален именованный поток данных</td></tr>
+        <tr><td>REASON_CLOSE (0x80000000)</td><td>Файл или каталог был закрыт (финальная запись)</td></tr>
+        <tr><td>INTEGRITY_CHANGE (0x00800000)</td><td>Изменился статус FILE_ATTRIBUTE_INTEGRITY_STREAM</td></tr>
+        <tr><td>REPARSE_POINT_CHANGE (0x00100000)</td><td>Изменен статус reparse point</td></tr>
+        <tr><td>SECURITY_CHANGE (0x00000800)</td><td>Изменены права доступа (параметры безопасности)</td></tr>
+    </table>
+
+    <div class="info">
+        <strong>Object ID</strong> — это уникальный номер (16-байтный GUID) файла или папки в Windows. Он не меняется, даже если файл преименовали или перенесли в другое место.
+    </div>
+
+    <h2>Как найти очистку USN-Journal</h2>
+    <div class="step"><span class="num">1</span> Откройте "Data Grid"</div>
+    <div class="step"><span class="num">2</span> Сортируем USN, кликая по нему два раза</div>
+    <div class="step"><span class="num">3</span> Если число 0 – может быть очистка</div>
+    <div class="step"><span class="num">4</span> Заходим Everything и ищем файл по фильтру: <code>ext:pf fsutil</code></div>
+    <div class="step"><span class="num">5</span> Если .pf за сегодняшнее число – блокируем за очистку</div>
+    <div class="step"><span class="num">6</span> Если нету – применяем EventVwr</div>
+</div>
+
+<!-- ==================== SYSTEM INFORMER ==================== -->
+<div class="section" id="systeminformer">
+    <h1>System Informer</h1>
+    <p>Для корректной работы рекомендуется использовать Canary-версию System Informer.</p>
+
+    <h2>Настройка</h2>
+    <div class="step"><span class="num">1</span> Запустите System Informer от имени администратора</div>
+    <div class="step"><span class="num">2</span> Перейдите в Options → Enable Kernel-Mode Driver</div>
+    <div class="step"><span class="num">3</span> Если появится сообщение об ошибке, нажмите OK и продолжайте</div>
+
+    <h2>Анализ строк процесса</h2>
+    <div class="step"><span class="num">1</span> Дважды щелкните по процессу</div>
+    <div class="step"><span class="num">2</span> Перейдите на вкладку Memory</div>
+    <div class="step"><span class="num">3</span> Выберите Options → Strings</div>
+    <div class="step"><span class="num">4</span> Установите Minimum Length: 4</div>
+    <div class="step"><span class="num">5</span> Включите: Extended Unicode, Mapped</div>
+
+    <div class="warn">⚠ РЕКОМЕНДУЕТСЯ произвести reset настроек во избежание утечки методов проверки/фикса строк на читы. Для сброса: System → Options → Reset</div>
+</div>
+
+<!-- ==================== WINPREFETCHVIEW ==================== -->
+<div class="section" id="winprefetchview">
+    <h1>WinPrefetchView</h1>
+    <p>Все данные считываются из Prefetch-файлов Windows. Расположение: <code>C:\Windows\Prefetch\</code>. Расширение файлов: .pf</p>
+
+    <h2>Какие данные можно получить?</h2>
+    <ul style="margin-left: 20px; margin-bottom: 15px;">
+        <li>Имя исполняемого процесса</li>
+        <li>Полный путь к .exe</li>
+        <li>Количество запусков программы</li>
+        <li>Дату и время последних запусков</li>
+        <li>Список DLL и файлов, загруженных во время запуска</li>
+        <li>Информацию о диске (томе)</li>
+        <li>Версию Prefetch-файла</li>
+    </ul>
+
+    <h2>Ключевые процессы для анализа</h2>
+    <table>
+        <tr><th>Процесс</th><th>Описание</th></tr>
+        <tr><td>cmd.exe</td><td>Определяет использование командной строки (.bat, .cmd файлы)</td></tr>
+        <tr><td>conhost.exe</td><td>Подтверждает использование командной строки, факт запуска консольных программ</td></tr>
+        <tr><td>consent.exe</td><td>UAC - запуск программ с правами администратора</td></tr>
+        <tr><td>powershell.exe</td><td>Автоматические скрипты, загрузчики, утилиты</td></tr>
+        <tr><td>explorer.exe</td><td>Проводник Windows</td></tr>
+        <tr><td>regedit.exe</td><td>Редактор реестра</td></tr>
+        <tr><td>msiexec.exe</td><td>Установка программ</td></tr>
+        <tr><td>rundll32.exe</td><td>Запуск DLL</td></tr>
+        <tr><td>wscript.exe / cscript.exe</td><td>Выполнение VBScript и JScript</td></tr>
+        <tr><td>java.exe</td><td>Консольная версия Java</td></tr>
+    </table>
+
+    <div class="warn">⚠ Windows создаёт Prefetch не для каждого процесса. Очистка папки Prefetch может удалить часть информации.</div>
+
+    <div class="info">Наличие Prefetch-файла само по себе не доказывает использование запрещённого ПО. Он лишь подтверждает факт запуска соответствующего исполняемого файла и должен оцениваться в совокупности с другими артефактами.</div>
+</div>
+
+<!-- ==================== SHELLBAGS ==================== -->
+<div class="section" id="shellbags">
+    <h1>Shellbags</h1>
+    <p>Shellbags – программа, которая опирается на ветку Shell/Bags в реестре. Позволяет найти следы папок, которые Вы открыли, и когда Вы его открыли.</p>
+
+    <h2>Как найти очистку</h2>
+    <p>В программе Shellbags Analyzer & Cleaner можно очистить shell/bags ветки в реестре. Чтобы найти очистку, откройте Everything напишите: <code>shellbag</code>. Смотрим файлы формата ".ini" – они создаются при очистке "клинером".</p>
+
+    <h2>Как начать пользоваться</h2>
+    <div class="step"><span class="num">1</span> Нажмите снизу кнопку "Анализ"</div>
+    <div class="step"><span class="num">2</span> После анализа нажимаем сверху слева "Показать всё"</div>
+    <div class="step"><span class="num">3</span> Удаленные папки – показывает за все время удаленные папки</div>
+    <div class="step"><span class="num">4</span> Сортировка: два раза нажимаем на "Посещенные"</div>
+    <div class="step"><span class="num">5</span> Существующие папки – можно глянуть папки, которые есть на пк</div>
+</div>
+
+<!-- ==================== EVENTLOG ==================== -->
+<div class="section" id="eventlog">
+    <h1>EventLog</h1>
+    <p>Event Log – встроенная программа Windows. Она делает записи информации о важных действиях, ошибках, предупреждениях.</p>
+
+    <h2>Как открыть</h2>
+    <p>Нажмите <code>Win+R</code>, напишите <code>eventvwr</code>, Enter.</p>
+
+    <h2>Важные ID событий</h2>
+    <table>
+        <tr><th>ID</th><th>Описание</th><th>Где искать</th></tr>
+        <tr><td>4616</td><td>Редактированное время</td><td>Журнал Windows > Безопасность</td></tr>
+        <tr><td>7045</td><td>Драйвера читов</td><td>Журнал Windows > Система</td></tr>
+        <tr><td>1102</td><td>Очистка EventVwr (второй файл)</td><td>Журналы Windows > Безопасность</td></tr>
+        <tr><td>104</td><td>Очистка EventVwr</td><td>Журналы Windows > Система</td></tr>
+        <tr><td>3079</td><td>Очистка USN-Journal</td><td>Журналы Windows > Приложение</td></tr>
+    </table>
+
+    <h2>Как обнаружить редактирование времени (4616)</h2>
+    <p>Когда пользователь меняет время, он может чистить journal, eventlog, выключать службы. Находится в: Журнал Windows > Безопасность > ID 4616</p>
+
+    <h2>Драйвера читов (7045)</h2>
+    <p>Может быть такое что чит использует драйвер для очистки. Находится: Журнал Windows > Система > ID 7045</p>
+
+    <h2>Очистка EventVwr (104)</h2>
+    <p>Пользователь может очистить сам ивент. Код 104 в "Журналы Windows" > "Система" является очисткой eventvwr.</p>
+
+    <h2>Очистка USN-Journal (3079)</h2>
+    <p>Опытный пользователь может удалить USN-Journal командой: <code>fsutil usn deletejournal /D C:</code></p>
+    <p>Заметить можно в JournalTrace: если число USN = 0, значит пользователь очистил usn.</p>
+    <p>Для подтверждения: EventLog > Журналы Windows > Приложение > код 3079</p>
+
+    <h2>Редактированное время PowerShell (4100)</h2>
+    <p>В PowerShell Operational можно увидеть предупреждения (Warning) с контекстом выполнения команд.</p>
+</div>
+
+<!-- ==================== CDPUSERSVC ==================== -->
+<div class="section" id="process-cdpusersvc">
+    <h1>Cdpusersvc</h1>
+    <p>Отвечает за файлы типа Activitiescache.db, позволяет передать информацию в такой файл для фильтрации.</p>
+
+    <h2>Шаги</h2>
+    <div class="step"><span class="num">1</span> Запустите SystemInformer</div>
+    <div class="step"><span class="num">2</span> Сделайте дамп службы cdpusersvc</div>
+    <div class="step"><span class="num">3</span> Фильтруем:</div>
+
+    <div class="code-block">{"displayText" --> .exe
+,"activationUri"
+platform --> .exe
+x_exe_path --> .com
+@{"displayText"</div>
+
+    <p>"-->" — значит, после определенного действия. Пишем сначала: <code>{"displayText"</code>, а потом уже <code>.exe</code></p>
+</div>
+
+<!-- ==================== DNSCACHE ==================== -->
+<div class="section" id="process-dnscache">
+    <h1>DnsCache</h1>
+    <p>Системный механизм временного хранения IP-адресов сайтов. Позволяет узнать, использует ли пользователь читы, так как для проверки на HWID загрузка чего-либо часто идёт на сайты с цифровыми адресами.</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Фильтры:</div><code>.org</code> | <code>.com</code> | <code>.br</code></div>
+</div>
+
+<!-- ==================== POWER ==================== -->
+<div class="section" id="process-power">
+    <h1>Power / PlugPlay / DCOMLaunch</h1>
+    <p>Power – процесс, который обрабатывает запросы и настраивает энергопотребление компьютера. От него питаются службы dcomlaunch и plugplay. Через него ищем .jar файлы.</p>
+
+    <h2>Настройка</h2>
+    <p>Те же самые галочки что и для других процессов, но ставим "5".</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Поиск .jar файлов:</div>(Contains case-insensitive) > <code>.jar</code></div>
+    <div class="filter-block"><div class="name">Поиск переименованных файлов:</div>(Contains case-insensitive) > <code>-jar</code></div>
+
+    <div class="warn">⚠ Данный процесс нестабильный, часто "забывает", так что большая вероятность, что там ничего не будет, хотя пользователь будет использовать софт.</div>
+</div>
+
+<!-- ==================== DPS ==================== -->
+<div class="section" id="process-dps">
+    <h1>DPS</h1>
+    <p>DPS – процесс, отвечающий за хранение ивентов приложений. Пример даты компиляции: <code>!!file.exe!2025/12/23:09:50:42!0!</code></p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Contains (Case-insensitive):</div><code>\device\harddiskvolume</code> > <code>.exe</code></div>
+    <div class="filter-block"><div class="name">Regex (Case-insensitive):</div><code>^!![A-Z]((?!Exe).)*$</code></div>
+</div>
+
+<!-- ==================== DIAGTRACK ==================== -->
+<div class="section" id="process-diagtrack">
+    <h1>DiagTrack</h1>
+    <p>DiagTrack – процесс, который собирает данные о пк и передает их в microsoft learn.</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Regex (Case-insensitive):</div><code>^\\device\\harddiskvolume((?!Exe|dll).)*$</code></div>
+    <div class="filter-block"><div class="name">Contains (Case-insensitive):</div><code>\device\harddiskvolume</code> > <code>.exe</code></div>
+</div>
+
+<!-- ==================== PCASVC ==================== -->
+<div class="section" id="process-pcasvc">
+    <h1>PcaSvc</h1>
+    <p>pcasvc - служба Помощника по совместимости программ. Можно найти запускавшиеся батки, .ahk и .jar скрипты. Позволяет детектить некоторые варианты нового лоадера системдлс.</p>
+</div>
+
+<!-- ==================== CTFMON ==================== -->
+<div class="section" id="process-ctfmon">
+    <h1>CTFMON</h1>
+    <p>CTFMON — процесс, отвечающий за командную строку (CMD/PowerShell). Через нее можно увидеть, что было написано в терминал.</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Фильтры:</div><code>cmd</code> | <code>powershell</code></div>
+</div>
+
+<!-- ==================== CSRSS ==================== -->
+<div class="section" id="process-csrss">
+    <h1>csrss</h1>
+    <p>csrss – критически важный системный процесс Windows. Отвечает за работу пользовательских графических элементов.</p>
+
+    <h2>Процесс csrss с меньшим размером байтов (EXE)</h2>
+    <div class="filter-block"><div class="name">Regex (case-insensitive):</div><code>^[A-Z]:\\.+\.(exe)$</code></div>
+
+    <h2>Процесс csrss с большим размером байтов (DLL)</h2>
+    <div class="filter-block"><div class="name">Regex (case-insensitive):</div><code>^[A-Z]:\\.+\.(dll)$</code></div>
+
+    <h2>Другой регекс</h2>
+    <div class="filter-block"><div class="name">Regex (case-insensitive):</div><code>((?!exe|pyd|manifest|dll|config|\\|cpl|microsoft-|shell).)*$</code></div>
+
+    <h2>Для обнаружения dll и exe одновременно</h2>
+    <div class="filter-block"><div class="name">Фильтр:</div><code>^[a-z]:.+\. </code> — подойдет для PathParser</div>
+</div>
+
+<!-- ==================== EXPLORER ==================== -->
+<div class="section" id="process-explorer">
+    <h1>Explorer</h1>
+    <p>Explorer – процесс проводника Windows, через него можно посмотреть файлы, которые были запущены.</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Файлы:</div><code>file:///</code> -> .zip/.rar/.exe/.dll — Часто "забывает"</div>
+    <div class="filter-block"><div class="name">Метки:</div><code>ms-shellactivity</code> — На Windows 11 не работает</div>
+    <div class="filter-block"><div class="name">Все форматы:</div>.zip/.rar/.exe/.dll — показывает всё</div>
+</div>
+
+<!-- ==================== APPINFO ==================== -->
+<div class="section" id="process-appinfo">
+    <h1>AppInfo</h1>
+    <p>AppInfo – процесс, который позволяет посмотреть всё, что было запущено от имени администратора. Часто "забывает" то есть не отображает файлы.</p>
+
+    <h2>Фильтры</h2>
+    <div class="filter-block"><div class="name">Фильтры:</div><code>.exe"</code> | <code>.exe</code></div>
+</div>
+
+<!-- ==================== MSMPENG ==================== -->
+<div class="section" id="process-msmpeng">
+    <h1>MsMpEng</h1>
+    <p>MsMpEng - системный процесс антивируса Windows.</p>
+
+    <h2>Настройка</h2>
+    <div class="step"><span class="num">1</span> Дважды щелкните по процессу</div>
+    <div class="step"><span class="num">2</span> Перейдите на вкладку Memory</div>
+    <div class="step"><span class="num">3</span> Выберите Options → Strings</div>
+    <div class="step"><span class="num">4</span> Minimum Length: 4, Extended Unicode, Mapped</div>
+    <div class="step"><span class="num">5</span> Нажимаем Filter > Contains (Case-intensive)</div>
+
+    <h2>Фильтры для поиска</h2>
+    <div class="code-block">fsutil usn deletejournal /d 
+reg delete 
+reg add 
+sc stop
+java -jar
+curl -O</div>
+</div>
+
+<!-- ==================== TELEGRAM ==================== -->
+<div class="section" id="process-telegram">
+    <h1>Telegram</h1>
+    <p>Можно посмотреть загрузки, которые были у пользователя за все время.</p>
+
+    <h2>Как найти</h2>
+    <p>SystemInformer > Telegram > Contains (Case-Insensitive) > <code>Downloads</code></p>
+
+    <div class="warn">⚠ Будет работать, если пользователь открыл (прикрепил файл). Если игрок не прикреплял файлы, то вы не найдете ничего.</div>
+</div>
+
+<!-- ==================== DLLHOST ==================== -->
+<div class="section" id="process-dllhost">
+    <h1>DllHost</h1>
+    <p>DllHost – процесс, отвечающий за выполнение различных фоновых задач. Через него можно глянуть пользовательские dll.</p>
+
+    <div class="warn">⚠ Dllhost может пропасть из systeminformer из-за того, что это фоновый процесс. Когда мы откроем какое-то любое видео у пользователя он появится.</div>
+
+    <h2>Фильтр</h2>
+    <div class="filter-block"><div class="name">Regex (case-insensitive):</div><code>^[a-zA-Z0-9_-]{2,20}\.[a-z]{2,4}$</code></div>
+</div>
+
+<!-- ==================== MFTECMD ==================== -->
+<div class="section" id="mftecmd">
+    <h1>MFTECmd</h1>
+    <p>NTFS хранит информацию о действиях с файлами: время создания, изменения, последнего доступа и записи. Также могут сохраняться дополнительные потоки данных (ADS), например "Zone.Identifier".</p>
+
+    <h2>Как использовать</h2>
+    <div class="step"><span class="num">1</span> Запустите командную строку от имени администратора</div>
+    <div class="step"><span class="num">2</span> Обозначьте папку: <code>cd путь</code></div>
+    <div class="step"><span class="num">3</span> Впишите: <code>MFTECmd.exe -f C:\$MFT --csv .</code></div>
+    <div class="step"><span class="num">4</span> Откройте полученный CSV в Timeline Explorer</div>
+
+    <h2>Что анализировать</h2>
+    <ul style="margin-left: 20px;">
+        <li><strong>Directory</strong> — расположение файла</li>
+        <li><strong>Last Access (0x30)</strong> — время последнего доступа</li>
+        <li><strong>Zone ID Contents</strong> — источник файла (URL)</li>
+    </ul>
+
+    <p>Ссылки на скачивание:
+        <br><a class="link" href="https://download.ericzimmermanstools.com/net9/TimelineExplorer.zip">Timeline Explorer</a>
+        <br><a class="link" href="https://download.ericzimmermanstools.com/net9/MFTECmd.zip">MFTECmd</a>
+    </p>
+</div>
+
+<!-- ==================== AMCACHEPARSER ==================== -->
+<div class="section" id="amcacheparser">
+    <h1>AmcacheParser</h1>
+    <p>Мы можем преобразовать файл Amcache.hve в хронологию выполненных файлов.</p>
+
+    <h2>Как использовать</h2>
+    <div class="step"><span class="num">1</span> CMD от имени администратора</div>
+    <div class="step"><span class="num">2</span> Заходим в папку: <code>cd путь нахождения amcache</code></div>
+    <div class="step"><span class="num">3</span> Вводим: <code>AmcacheParser.exe -f "C:\Windows\appcompat\Programs\Amcache.hve" --csv .</code></div>
+    <div class="step"><span class="num">4</span> Ожидаем сканирования</div>
+    <div class="step"><span class="num">5</span> Перетаскиваем файл UnassociatedFileEntrys в TimelineExplorer</div>
+    <div class="step"><span class="num">6</span> Листаем снизу ползунок вправо до link date и названия файлов</div>
+    <div class="step"><span class="num">7</span> Сортировать по времени: Link Date (2 раза)</div>
+</div>
+
+<!-- ==================== JOURNATRACE SPOKWN ==================== -->
+<div class="section" id="journaltrace-spokwn">
+    <h1>JournalTrace (Espouken)</h1>
+    <p>Тот же самый JournalTrace от ponei, но переделанный spokwn.</p>
+
+    <h2>Добавлены</h2>
+    <ul style="margin-left: 20px; margin-bottom: 15px;">
+        <li><code>&&</code> — и</li>
+        <li><code>||</code> — или</li>
+        <li><code>!!</code> — исключение</li>
+    </ul>
+    <p>А также фильтры сверху и справа, которые позволяют искать определенные причины файлов.</p>
+    <p><a class="link" href="https://github.com/spokwn/JournalTrace/releases/tag/1.2">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== ACTIVITIESCACHE ==================== -->
+<div class="section" id="activitescache">
+    <h1>ActivitiesCache-execution</h1>
+    <p>Анализирует базу ActivitiesCache.db, извлекает сведения о запущенных файлах, проверяет их цифровые подписи, помечает удалённые файлы как Deleted, обнаруживает известные сигнатуры (например Vape) и выполняет общие (Generic) проверки.</p>
+    <p><a class="link" href="https://github.com/spokwn/ActivitiesCache-execution">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PREFETCHPARSER ==================== -->
+<div class="section" id="prefetchparser">
+    <h1>PrefetchParser</h1>
+    <p>PrefetchParser анализирует файлы .pf, выявляя неподписанные или подозрительные файлы, связанные библиотеки, а также историю запусков (Execution History).</p>
+    <p><a class="link" href="https://github.com/spokwn/prefetch-parser/releases/tag/v1.5.5">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PROCESSPARSER ==================== -->
+<div class="section" id="processparser">
+    <h1>ProcessParser</h1>
+    <p>Использует xxstrings для получения списка запускавшихся файлов по строкам процессов, после чего проверяет их цифровые подписи и правила YARA для выявления читов.</p>
+    <p><a class="link" href="https://github.com/spokwn/process-parser">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PCASVC-EXECUTED ==================== -->
+<div class="section" id="pcasvc-executed">
+    <h1>PcaSvc (Spokwn)</h1>
+    <p>Извлекает данные о последних запусках процессов из PcaClient и PcaSvc. Проверяет цифровые подписи, отмечает отсутствующие файлы как Deleted, выявляет известные подписи и анализирует журнал USN для обнаружения замен файлов.</p>
+    <p><a class="link" href="https://github.com/spokwn/pcasvc-executed/releases/tag/v0.8.7">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== ESPOUKEN TOOL ==================== -->
+<div class="section" id="espouken-tool">
+    <h1>Espouken Tool</h1>
+    <p>Espouken tools – многофункциональный инструмент от spokwn для анализа системы.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Проверка изменений времени</li>
+        <li>Анализ Unicode-строк (DiagTrack, DPS и исполняемые файлы)</li>
+        <li>Проверка альт-аккаунтов Minecraft</li>
+        <li>Просмотр HWID</li>
+        <li>Отображение времени загрузки системы</li>
+        <li>Анализ служб с отображением их статуса и времени запуска</li>
+    </ul>
+    <p><a class="link" href="https://github.com/spokwn/Tool">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== BAMPARSER ==================== -->
+<div class="section" id="bamparser">
+    <h1>BamParser</h1>
+    <p>BAM Parser (Анализатор BAM) извлекает пути и время последнего запуска программ из BAM.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Анализ путей исполняемых файлов из реестра BAM</li>
+        <li>Преобразование путей "\Device\HarddiskVolume" в буквы дисков</li>
+        <li>Отображение времени последнего запуска и запуска в текущей сессии</li>
+        <li>Проверка цифровых подписей</li>
+        <li>Отображение статуса «Удален», если файл отсутствует</li>
+    </ul>
+
+    <h2>Дополнительно</h2>
+    <ul style="margin-left: 20px;">
+        <li>"Ctrl + ЛКМ" — копирование пути</li>
+        <li>Красный путь — обнаружены замены (нажмите для просмотра деталей)</li>
+        <li>Фильтры: неподписанные файлы, Generic, запуски в текущей сессии</li>
+    </ul>
+    <p><a class="link" href="https://github.com/spokwn/BAM-parser/releases/tag/v1.2.9">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PATHSPARSER ==================== -->
+<div class="section" id="pathsparser">
+    <h1>PathsParser</h1>
+    <p>PathsParser – программа для анализа csrss и тд. Для использования нужен текстовый файл: result.txt, paths.txt.</p>
+
+    <h2>Как пользоваться</h2>
+    <p><a class="link" href="https://drive.google.com/file/d/11TOolOBxeCXKONMjAqauci4uuZ1TAHjO/view?usp=sharing">Видео-инструкция</a></p>
+    <p><a class="link" href="https://github.com/spokwn/PathsParser/releases/tag/v1.2">Скачать программу</a></p>
+</div>
+
+<!-- ==================== KERNELLIVEDUMPTOOL ==================== -->
+<div class="section" id="kernellivedumptool">
+    <h1>KernelLiveDumpTool</h1>
+    <p>KernelLiveDumpTool – программа в реальном времени делает дамп ядра, получая информацию о батниках, FilelessExecution и т.д.</p>
+
+    <h2>Как начать дампить</h2>
+    <div class="step"><span class="num">1</span> SystemInformer > процесс: System (4)</div>
+    <div class="step"><span class="num">2</span> ПКМ > Create live kernel dump file > full</div>
+    <div class="step"><span class="num">3</span> Сохраняем txt с программой KLDT</div>
+    <div class="step"><span class="num">4</span> Запускаем > n > ждем дамп</div>
+    <div class="step"><span class="num">5</span> После сканирования появится папка result в папке с программой</div>
+    <div class="step"><span class="num">6</span> Запускаем папку и смотрим результаты</div>
+
+    <p><a class="link" href="https://drive.google.com/file/d/1my2EeETpMXB37alPvdUVv8UhwHuerreZ/view?usp=sharing">Видео-инструкция</a></p>
+    <p><a class="link" href="https://github.com/spokwn/KernelLiveDumpTool/releases/tag/v1.1">Скачать программу</a></p>
+</div>
+
+<!-- ==================== PREFETCHVIEW++ ==================== -->
+<div class="section" id="prefetchviewpp">
+    <h1>PrefetchView++</h1>
+    <p>PrefetchView++ анализирует все Prefetch-файлы из "C:\Windows\Prefetch".</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Преобразует пути "\Volume{GUID}" в пути с буквами дисков</li>
+        <li>Проверяет цифровые подписи файлов и импортов</li>
+        <li>Присваивает статусы: Signed, Unsigned, Fake Signature, Cheat, NotFound</li>
+        <li>Сканирует Unsigned файлы YARA-правилами</li>
+        <li>Анализирует импорты и помечает основной файл как Cheat</li>
+        <li>USN Journal — поиск удалённых и переименованных Prefetch-файлов</li>
+        <li>Sysmain Info — сведения о службе SysMain</li>
+        <li>PrefetchInfo — анализ параметров Prefetch</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/PrefetchView/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== MTFPARSER ==================== -->
+<div class="section" id="mtfparser">
+    <h1>MTFParser</h1>
+    <p>MFTParser автоматически анализирует MFT на всех NTFS-дисках и создаёт файл "mft_dump.csv". Близок к инструменту Эрика Зиммермана, но выполняет весь процесс без ручной настройки.</p>
+    <p><a class="link" href="https://github.com/Orbdiff/MFTParser">Ссылка на скачивание</a></p>
+    <p><a class="link" href="https://ericzimmerman.github.io/">Timeline Explorer</a></p>
+</div>
+
+<!-- ==================== USERASSISTVIEW ==================== -->
+<div class="section" id="userassistview">
+    <h1>UserAssistView</h1>
+    <p>UserAssistView анализирует ключ UserAssist ("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"), преобразуя GUID и значения реестра в обычные пути Windows.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Отображает время запуска, путь, статус, счётчики запусков и фокуса</li>
+        <li>Проверяет цифровые подписи</li>
+        <li>Обнаруживает подмены (Copy, Type, Explorer, Hex)</li>
+        <li>Сканирует Unsigned файлы YARA-правилами</li>
+        <li>Фильтры: In Instance, Show Untrusted, Show NotFound</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/UserAssistView/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== USNJOURNAL CLI ==================== -->
+<div class="section" id="usnjournalcli">
+    <h1>USNJournal_CLI</h1>
+    <p>USNJournal_CLI – инструмент командной строки для анализа USN Journal.</p>
+
+    <h2>Опции</h2>
+    <table>
+        <tr><th>Опция</th><th>Описание</th></tr>
+        <tr><td>-h</td><td>Помощь с примерами использования</td></tr>
+        <tr><td>-L</td><td>Показать записи после входа текущего пользователя</td></tr>
+        <tr><td>-A &lt;DATE&gt;</td><td>Показать записи после указанной даты</td></tr>
+        <tr><td>-n &lt;names&gt;</td><td>Фильтр по имени(ам) файла</td></tr>
+        <tr><td>-r &lt;reasons&gt;</td><td>Фильтр по причинам USN</td></tr>
+        <tr><td>-i &lt;ids&gt;</td><td>Фильтр по ID файла(ов)</td></tr>
+        <tr><td>-p &lt;paths&gt;</td><td>Фильтр по пути(ям)</td></tr>
+        <tr><td>-R</td><td>Рекурсивная фильтрация по пути</td></tr>
+        <tr><td>-x &lt;types&gt;</td><td>Обнаружение паттернов подмен</td></tr>
+        <tr><td>--only-replace</td><td>Показывать ТОЛЬКО результаты подмен</td></tr>
+        <tr><td>-f &lt;formats&gt;</td><td>Формат(ы) вывода: txt;csv;json</td></tr>
+        <tr><td>-o &lt;files&gt;</td><td>Имя(ена) выходного(ых) файла(ов)</td></tr>
+        <tr><td>-c</td><td>Вывод результатов в консоль</td></tr>
+    </table>
+
+    <h2>Пример использования</h2>
+    <div class="code-block">Journal_CLI.exe C: -n "test.exe;cmd.dll" -f txt -o result.txt</div>
+    <p><a class="link" href="https://github.com/Orbdiff/USNJournal_CLI/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== USBDETECTOR ==================== -->
+<div class="section" id="usbdetector">
+    <h1>USBDetector</h1>
+    <p>USBDetector – упрощённый аналог USBDeview с дополнительной проверкой VID/PID через DeviceHunt.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Отображает сведения о USB-устройствах с возможностью сортировки</li>
+        <li>Показывает название устройства из DeviceHunt</li>
+        <li>Выделяет USB-устройства красным цветом</li>
+        <li>Контекстное меню для открытия страницы устройства в DeviceHunt</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/USBDetector/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PFTRACE ==================== -->
+<div class="section" id="pftrace">
+    <h1>PFTrace</h1>
+    <p>PFTrace анализирует Prefetch-файлы, связанные с rundll32 и regsvr32.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Отображает импорты только для файлов без цифровой подписи</li>
+        <li>Выявляет в импортируемых строках признаки читов</li>
+        <li>Проверяет через USN Journal, был ли удалён Prefetch-файл</li>
+    </ul>
+    <p>При запуске можно выбрать: rundll32, regsvr32 и/или USN Journal.</p>
+    <p><a class="link" href="https://github.com/Orbdiff/PFTrace/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== INJGEN ==================== -->
+<div class="section" id="injgen">
+    <h1>InjGen</h1>
+    <p>InjGen обнаруживает в процессе javaw загруженные модули без цифровой подписи или с поддельной подписью.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Проверяет найденные модули на наличие JNI</li>
+        <li>Помечает модули как +JNI</li>
+        <li>Дополняет встроенное сканирование памяти обнаружением строк, связанных с известными клиентами</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/InjGen/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== JARPARSER ==================== -->
+<div class="section" id="jarparser">
+    <h1>JarParser</h1>
+    <p>JARParser анализирует Prefetch, ищет запуск JAVA/JAVAW и проверяет импорты на наличие .jar-файлов с изменённым расширением.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Проверяет импорты и помечает подозрительные строки флагами</li>
+        <li>Анализирует память службы DCOMLaunch на наличие строк с "-jar"</li>
+        <li>Парсит USN Journal для поиска удалённых или переименованных Prefetch-файлов</li>
+    </ul>
+
+    <h2>Установка</h2>
+    <div class="code-block">powershell -command "irm 'https://raw.githubusercontent.com/Orbdiff/JARParser/refs/heads/main/JARParser.ps1' | iex"</div>
+    <p><a class="link" href="https://github.com/Orbdiff/JARParser/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== CHECKDELETEDUSN ==================== -->
+<div class="section" id="checkdeletedusn">
+    <h1>CheckDeletedUSN</h1>
+    <p>CheckDeletedUSN определяет, был ли удалён журнал USN, сравнивая время создания "C:$Extend$UsnJrnl:$J" со временем загрузки системы (BootTime).</p>
+    <p>Если "C:$Extend$UsnJrnl:$J" создан позже BootTime, это с высокой вероятностью указывает на удаление и пересоздание USN-журнала.</p>
+    <p><a class="link" href="https://github.com/Orbdiff/CheckDeletedUSN/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== DPS ANALYZER ==================== -->
+<div class="section" id="dpsanalyzer">
+    <h1>DPS Analyzer</h1>
+    <p>DPS-Analyzer анализирует память службы DPS, извлекает строки (не менее 5 символов) и сохраняет их в "dps_strings.txt".</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Преобразует пути "\Device\HarddiskVolumeX" в пути с буквами дисков</li>
+        <li>Проверяет цифровые подписи файлов</li>
+        <li>Присваивает статусы: Signed, Unsigned, Fake Signed, LocalSign, NotFound</li>
+        <li>Формирует несколько отчётов</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/DPS-Analyzer/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== STRINGSPARSER ==================== -->
+<div class="section" id="stringsparser">
+    <h1>StringsParser</h1>
+    <p>Программа, которая может отображать исполняемые файлы, записанные в память Diagtrack и AppInfo.</p>
+
+    <h2>Возможности</h2>
+    <ul style="margin-left: 20px;">
+        <li>Включает собственные правила Yara</li>
+        <li>Анализирует строки Unicode в памяти</li>
+        <li>Обнаруживает замены по путям: Explorer, Copy, Type, Hex</li>
+        <li>Проверяет цифровые подписи: signed, Unsigned, Fake signature, cheat, Not Found, Not MZ</li>
+    </ul>
+    <p><a class="link" href="https://github.com/Orbdiff/StringsParser">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== FILELESS ==================== -->
+<div class="section" id="fileless">
+    <h1>Fileless</h1>
+    <p>Программа, которая позволяет найти fileless-читы, шеллкод, pe инджекты.</p>
+    <p>Работает через eventvwr, а также memory dumping.</p>
+    <p><a class="link" href="https://github.com/Orbdiff/Fileless/">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== AMCACHEPARSER++ ==================== -->
+<div class="section" id="amcacheparserpp">
+    <h1>AmcacheParser++</h1>
+    <p>AmcacheParser++ – высокопроизводительный анализатор Amcache с поддержкой встроенных и пользовательских правил YARA, фильтрацией по SHA1, а также интеграцией с VirusTotal.</p>
+    <p><a class="link" href="https://detect.ac/tool/AmcacheParser++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== BAMPARSER++ ==================== -->
+<div class="section" id="bamparserpp">
+    <h1>BamParser++</h1>
+    <p>BamParser++ – инструмент для анализа истории запуска программ из BAM с временными метками. Поддерживает YARA, подсветку изменений через USN Journal и обнаружение попыток очистки.</p>
+    <p><a class="link" href="https://detect.ac/tool/BamParser++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== BROWSINGHISTORYVIEW++ ==================== -->
+<div class="section" id="browsinghistoryviewpp">
+    <h1>BrowsingHistoryView++</h1>
+    <p>Инструмент, объединяющий историю браузеров в одном интерфейсе. Включает фильтрацию, выявление подозрительных доменов, интеграцию с VirusTotal и расширенные временные метки.</p>
+    <p><a class="link" href="https://detect.ac/tool/BrowsingHistoryView++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== CRASHEDFILEVIEWER++ ==================== -->
+<div class="section" id="crashedfileviewerpp">
+    <h1>CrashedFileViewer++</h1>
+    <p>Инструмент, объединяющий все артефакты сбоев Windows в одном окне. Поддерживает подсветку изменений через USN Journal, обнаружение очистки журналов и YARA.</p>
+    <p><a class="link" href="https://detect.ac/tool/CrashedFileViewer++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== JOURNATRACE++ (detect.ac) ==================== -->
+<div class="section" id="journaltracepp">
+    <h1>JournalTrace++</h1>
+    <p>Улучшенная версия JournalTrace с обнаружением обходов USN Journal, расширенной фильтрацией по причинам и ключевым словам.</p>
+    <p><a class="link" href="https://detect.ac/tool/JournalTrace++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== KERNELLIVEDUMP++ ==================== -->
+<div class="section" id="kernellivedumppp">
+    <h1>KernelLiveDump++</h1>
+    <p>Инструмент для создания дампов памяти Kernel и User Mode с поддержкой загрузки внешних дампов, фильтрацией строк и поиском подозрительных данных.</p>
+    <p><a class="link" href="https://detect.ac/tool/KernelLiveDump++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== MFTEXPLORER++ ==================== -->
+<div class="section" id="mftexplorerpp">
+    <h1>MFTExplorer++</h1>
+    <p>Инструмент для анализа $MFT, выявляющий подозрительные альтернативные потоки данных (ADS) и исторические следы файлов.</p>
+    <p><a class="link" href="https://detect.ac/tool/MFTExplorer++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== PATHSPARSER++ ==================== -->
+<div class="section" id="pathsparserpp">
+    <h1>PathsParser++</h1>
+    <p>Улучшенный PathsParser с удобным интерфейсом, поддержкой различных источников ввода, встроенными и пользовательскими правилами YARA, а также просмотром журнала USN.</p>
+    <p><a class="link" href="https://detect.ac/tool/PathsParser++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== POWERSHELLPARSER++ ==================== -->
+<div class="section" id="powershellparserpp">
+    <h1>PowerShellParser++</h1>
+    <p>Улучшенная замена Hayabusa для полного анализа артефактов истории PowerShell. Включает расширенные фильтры, поиск байпасов защиты и встроенные механизмы их обнаружения.</p>
+    <p><a class="link" href="https://detect.ac/tool/PowerShellParser++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== SRUMEXPLORER++ ==================== -->
+<div class="section" id="srumexplorerpp">
+    <h1>SRUMExplorer++</h1>
+    <p>Инструмент для анализа данных SRUM, отображающий пути к файлам, службы, сетевую активность и время подключений. Включает криминалистические проверки, анализ YARA и отслеживание изменений через USN.</p>
+    <p><a class="link" href="https://detect.ac/tool/SRUMExplorer++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== SAVEDFILESVIEWER++ ==================== -->
+<div class="section" id="savedfilesviewerpp">
+    <h1>SavedFilesViewer++</h1>
+    <p>Инструмент для просмотра всех сохранённых на диск файлов с сопоставлением артефактов для определения времени загрузки.</p>
+    <p><a class="link" href="https://detect.ac/tool/SavedFilesViewer++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== USBDEVIEW++ ==================== -->
+<div class="section" id="usbdeviewpp">
+    <h1>USBDeview++</h1>
+    <p>Расширенная версия USBDeview, объединяющая журналы устройств из разных источников, анализирующая их через DeviceHunt и другие API, выявляющая DMA/USB-угрозы.</p>
+    <p><a class="link" href="https://detect.ac/tool/USBDeview++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== WINPREFETCHVIEW++ ==================== -->
+<div class="section" id="winprefetchviewpp">
+    <h1>WinPrefetchView++</h1>
+    <p>Улучшенная версия с обнаружением обходов защиты, подсветкой изменённых файлов, расширенной проверкой подписей и поддержкой YARA.</p>
+    <p><a class="link" href="https://detect.ac/tool/WinPrefetchView++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== MOSS ==================== -->
+<div class="section" id="moss">
+    <h1>MOSS 2.0</h1>
+    <p>Обновлённая версия MOSS для Rainbow Six Siege с мониторингом честности матчей в реальном времени.</p>
+    <p><a class="link" href="https://detect.ac/tool/MOSS-2.0">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== STRINGEXPLORER++ ==================== -->
+<div class="section" id="stringexplorerpp">
+    <h1>StringExplorer++</h1>
+    <p>Инструмент для анализа строк исполняемых файлов с проверкой даты компиляции, энтропии, поиском аномалий и интеграцией с VirusTotal.</p>
+    <p><a class="link" href="https://detect.ac/tool/StringExplorer++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== AUTORUNS++ ==================== -->
+<div class="section" id="autorunspp">
+    <h1>AutoRuns++</h1>
+    <p>Переработанная альтернатива Microsoft Sysinternals Autoruns с отслеживанием изменений через USN Journal, проверкой цифровых подписей и удобной фильтрацией.</p>
+    <p><a class="link" href="https://detect.ac/tool/Autoruns++">Ссылка на скачивание</a></p>
+</div>
+
+<!-- ==================== EXECUTEDPROGRAMSLIST ==================== -->
+<div class="section" id="executedprogramslist">
+    <h1>ExecutedProgramsList</h1>
+    <p>Программа для анализа ранее запускавшихся исполняемых файлов (.exe)</p>
+
+    <h2>Способы сортировки</h2>
+
+    <h3>1. Сортировка по полю "Last Executed On"</h3>
+    <p>Обратите внимание на файлы, у которых отсутствуют:</p>
+    <ul style="margin-left: 20px;">
+        <li>File Description</li>
+        <li>Product Name</li>
+        <li>File Version</li>
+        <li>Company Name</li>
+    </ul>
+    <p>Отсутствие информации может свидетельствовать о сторонней, подозрительной программе.</p>
+
+    <h3>2. Комбинированная сортировка</h3>
+    <p>Сначала по "Last Executed On", после чего — по "Product Name" или "Company Name".</p>
+
+    <h3>3. Сортировка по размеру и описанию файла</h3>
+    <p>Используются поля "File Size" и "File Description". Данный метод применяется, когда данные Prefetch отсутствуют.</p>
+</div>
+
+<!-- ==================== PCAGENERAL ==================== -->
+<div class="section" id="pcageneral">
+    <h1>PcaGeneral</h1>
+    <p>PcaGeneraldb0.txt – отображает все файлы, которые были запущены с начала скачивания ОС.</p>
+</div>
+
+<!-- ==================== ANYDESK ==================== -->
+<div class="section" id="anydesk">
+    <h1>AnyDesk</h1>
+    <p>Продвинутый пользователь может заддодисить интернет через AnyDesk.</p>
+
+    <h2>Как защититься</h2>
+    <p>Нужно отключить в настройках Anydesk "прямое подключение":</p>
+    <p>Настройки > Соединение > Прямое подключение — отключаем галочку (стоит по умолчанию включённой).</p>
+
+    <h2>AnyDesk bypass (anynet_unknown)</h2>
+    <p>Пользователь может забайпасить бесконечным подключением. На экране будет: "anynet_unknown".</p>
+
+    <div class="warn">⚠ За этот байпас мы не можем забанить сразу. Нужно убедиться, что пользователь пытается скрыть экран. Если ошибка >3 раз подряд — выдаём блокировку.</div>
+
+    <h2>Как повторить ошибку</h2>
+    <p><strong>Первый метод (лёгкий):</strong> Закрываем Anydesk в трее, когда появилось окно подключения.</p>
+    <p><strong>Второй метод (эффективный):</strong> Когда появилось окно о подключении, открываем вкладку и много раз нажимаем "Переподключение".</p>
+</div>
+
+<!-- ==================== DEFENDER SUPPORT ==================== -->
+<div class="section" id="defender-support">
+    <h1>Defender Support Logger</h1>
+    <p>Логгер, встроенный в Windows, более улучшенная версия Pcageneral. Собирает информацию о файлах, которые были просканированы антивирусом.</p>
+
+    <h2>Расположение</h2>
+    <div class="code-block">C:\ProgramData\Microsoft\Windows Defender\Support</div>
+    <p>Логируются даже скачивания файлов из браузера.</p>
+
+    <div class="info">В данном логе могут появиться много читов, которые подгружаются на диск, но не подгружают себя Fileless методом.</div>
+</div>
+
+<!-- ==================== DMA ==================== -->
+<div class="section" id="dma">
+    <h1>DMA</h1>
+    <p>Метод обнаружения DMA — это event 1010. Данный ивент отображает физическое извлечение DMA из PCI.</p>
+
+    <h2>Как найти</h2>
+    <div class="code-block">eventvwr -> Система -> ID 1010</div>
+
+    <p>Ищем ошибку:</p>
+    <div class="code-block">Не удалось выполнить запрос на удаление устройства: PCI\VEN_6856&DEV_13F3...
+Удаление заблокировано (Вето).
+Тип вето: 6 (PNP_VetoDevice)</div>
+</div>
+
+<!-- ==================== FILELESS EXECUTION ==================== -->
+<div class="section" id="fileless-execute">
+    <h1>Fileless Execution Detect</h1>
+    <p>Fileless Execution - чит, который инджектится с помощью powershell/cmd внутрь оперативной памяти, не оставляя следов.</p>
+
+    <h2>Как найти через EventLog</h2>
+    <div class="step"><span class="num">1</span> Открываем "Журналы приложений и служб"</div>
+    <div class="step"><span class="num">2</span> Microsoft > Windows > PowerShell</div>
+    <div class="step"><span class="num">3</span> Operational — рассматриваем только предупреждения</div>
+</div>
+
+<!-- ==================== PCAGENERAL DPS ==================== -->
+<div class="section" id="pcageneral-dps">
+    <h1>PcaGeneral DPS фильтр</h1>
+    <p>Как создать свой DPS фильтр:</p>
+
+    <h2>Шаги</h2>
+    <div class="step"><span class="num">1</span> Зайдите на сайт VirusTotal</div>
+    <div class="step"><span class="num">2</span> Закиньте приложение на сайт</div>
+    <div class="step"><span class="num">3</span> Нажмите Details</div>
+    <div class="step"><span class="num">4</span> Рассмотрите History в вкладке Details</div>
+    <div class="step"><span class="num">5</span> Creation Time — будет означать создание программы</div>
+
+    <h2>Формат даты</h2>
+    <div class="code-block">ГГГГ/ММ/ДД:ЧЧ:ММ:СС
+Г - ГОД, М - МЕСЯЦ, Д - ДАТА, Ч - ЧАС, М - МИНУТА, С - СЕКУНДА</div>
+</div>
+
+<!-- ==================== PRIVATE METHODS ==================== -->
+<div class="section" id="private-methods">
+    <h1>Private Methods</h1>
+    <p>Секция для описания приватных методов проверки.</p>
+</div>
+
+</div>
+
+<script>
+function showSection(id) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    document.getElementById('nav-' + id).classList.add('active');
+}
+showSection('journaltrace');
+</script>
+
+</body>
+</html>

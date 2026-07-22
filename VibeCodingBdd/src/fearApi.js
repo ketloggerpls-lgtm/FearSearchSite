@@ -1,4 +1,4 @@
-const API_BASE = "https://api.fearproject.ru";
+const API_BASE = "https://fearproject.ru/api";
 const logger = require("./logger");
 
 class FearAuthError extends Error {
