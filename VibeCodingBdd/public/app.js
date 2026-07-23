@@ -323,7 +323,7 @@ function sortOnlinePlayers(players, key) {
         return kdb - kda;
       }); break;
     case "playtime":
-      arr.sort(function(a, b) { return (b.db_playtime || 0) - (a.db_playtime || 0); }); break;
+      arr.sort(function(a, b) { return (a.db_playtime || 0) - (b.db_playtime || 0); }); break;
     case "fear-date":
       arr.sort(function(a, b) {
         var da = a.db_fear_created_at ? new Date(a.db_fear_created_at).getTime() : 0;
@@ -381,7 +381,7 @@ function renderRow(row) {
   tr.className = "border-t border-white/5 hover:bg-white/[0.04] transition-colors";
   var avatarHtml;
   if (row.avatar_full) {
-    avatarHtml = '<td class="px-3 py-3"><img src="' + esc(row.avatar_full) + '" alt="" class="w-8 h-8 rounded-full object-cover" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="w-8 h-8 rounded-full items-center justify-center hidden">' + letterAvatarRound(row.name, 32) + '</div></td>';
+    avatarHtml = '<td class="px-3 py-3"><img src="' + esc(row.avatar_full) + '" alt="" class="w-8 h-8 min-w-[32px] min-h-[32px] rounded-full object-cover shrink-0" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="w-8 h-8 min-w-[32px] min-h-[32px] rounded-full items-center justify-center hidden">' + letterAvatarRound(row.name, 32) + '</div></td>';
   } else {
     avatarHtml = '<td class="px-3 py-3">' + letterAvatarRound(row.name, 32) + '</td>';
   }
@@ -918,6 +918,8 @@ var cachedMyStatsData = null;
 
 function loadMyStats(showLoading) {
   var el = document.getElementById("myStatsContent");
+  var infoEl = document.getElementById("myStatsInfo");
+  if (infoEl) infoEl.textContent = "Поиск наказаний по SteamID, связанному с вашим Discord аккаунтом в профилях Fear.";
   if (showLoading !== false) {
     el.innerHTML = '<div class="skeleton h-[80px]"></div>';
   }
@@ -980,40 +982,8 @@ function deleteSiteUser(userId, username) {
 function loadAdminPanel() {
   var usersEl = document.getElementById("adminUsersList");
   var logsEl = document.getElementById("adminLoginLogs");
-  var overviewEl = document.getElementById("staffOverviewCards");
   if (usersEl) usersEl.innerHTML = '<div class="skeleton h-[60px]"></div>';
   if (logsEl) logsEl.innerHTML = '<div class="skeleton h-[60px]"></div>';
-  if (overviewEl) overviewEl.innerHTML = '<div class="skeleton h-[100px]"></div><div class="skeleton h-[100px]"></div><div class="skeleton h-[100px]"></div>';
-
-  fetch("/api/staff-overview").then(function(r){return r.json()}).then(function(d) {
-    if (!overviewEl) return;
-    function renderStaffMini(list, label, valueFn, color) {
-      var html = '<div class="rounded-xl bg-white/[0.03] border border-white/5 p-3">';
-      html += '<div class="text-[11px] font-bold mb-2" style="color:' + color + '">' + label + '</div>';
-      if (!list || !list.length) { html += '<div class="text-gray-600 text-[11px]">Нет данных</div>'; }
-      else { list.forEach(function(s, i) {
-        var avatarHtml = s.avatar_full
-          ? '<img src="' + esc(s.avatar_full) + '" class="w-6 h-6 rounded-full object-cover shrink-0">'
-          : '<div class="w-6 h-6 rounded-full shrink-0">' + letterAvatarRound(s.name, 24) + '</div>';
-        var fearUrl = "https://fearproject.ru/profile/" + s.steamid;
-        html += '<div class="flex items-center gap-2 py-1">';
-        html += '<span class="text-gray-600 text-[10px] w-3 text-right">' + (i + 1) + '</span>';
-        html += avatarHtml;
-        html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 min-w-0 text-[11px] text-white truncate hover:text-[#818cf8]">' + esc(s.name || s.steamid) + '</a>';
-        html += '<span class="text-[11px] font-semibold shrink-0" style="color:' + color + '">' + valueFn(s) + '</span>';
-        html += '</div>';
-      }); }
-      html += '</div>';
-      return html;
-    }
-    var html = renderStaffMini(d.topKd, 'Топ K/D', function(s) { return s.kd; }, '#22c7aa');
-    html += renderStaffMini(d.newestAccounts, 'Новые аккаунты', function(s) {
-      if (!s.fear_created_at) return '-';
-      return fmtAge(s.fear_created_at) || new Date(s.fear_created_at).toLocaleDateString("ru-RU");
-    }, '#818cf8');
-    html += renderStaffMini(d.lowestHours, 'Мало часов', function(s) { return fmtHours(s.playtime); }, '#e2bb6d');
-    overviewEl.innerHTML = html;
-  }).catch(function() { if (overviewEl) overviewEl.innerHTML = '<div class="col-span-3 text-gray-500 text-xs">Ошибка загрузки</div>'; });
 
   fetch("/api/admin/users").then(function(r){return r.json()}).then(function(data) {
     if (!usersEl) return;
@@ -1060,10 +1030,10 @@ function loadAdminPanel() {
     }).catch(function() {});
   }
 
-  fetch("/api/admin/login-logs?limit=30").then(function(r){return r.json()}).then(function(data) {
+  fetchWithTimeout("/api/admin/login-logs?limit=30", {}, 10000).then(function(r){return r.json()}).then(function(data) {
     if (!logsEl) return;
     var logs = data.logs || [];
-    if (!logs.length) { logsEl.innerHTML = '<div class="text-gray-500 text-xs">Нет логов</div>'; return; }
+    if (!logs.length) { logsEl.innerHTML = '<div class="text-gray-500 text-xs">Нет логов входа</div>'; return; }
     var html = '';
     logs.forEach(function(l) {
       var d = new Date(l.created_at);
@@ -1076,14 +1046,16 @@ function loadAdminPanel() {
       html += '</div>';
     });
     logsEl.innerHTML = html;
-  }).catch(function() { if (logsEl) logsEl.innerHTML = '<div class="text-red-400 text-xs">Ошибка</div>'; });
+  }).catch(function(e) { if (logsEl) logsEl.innerHTML = '<div class="text-red-400 text-xs">Ошибка: ' + esc(e.message) + '</div>'; });
 }
 
 // ===================== OWNER SETTINGS =====================
 function loadOwnerSystem() {
   var el = document.getElementById("ownerSystemInfo");
+  var botEl = document.getElementById("botStatusInfo");
   if (!el) return;
   el.innerHTML = '<div class="col-span-full text-center text-gray-500 text-xs py-2">Загрузка...</div>';
+  if (botEl) botEl.innerHTML = '<div class="text-gray-500 text-xs">Загрузка...</div>';
   fetch("/api/owner/system").then(function(r) {
     if (!r.ok) throw new Error("Нет доступа (403)");
     return r.json();
@@ -1113,6 +1085,22 @@ function loadOwnerSystem() {
   }).catch(function(err) {
     el.innerHTML = '<div class="col-span-full text-center py-3"><div class="text-gray-500 text-xs">Настройки владельца</div><div class="text-red-400 text-[11px] mt-1">Нет доступа или ошибка загрузки</div></div>';
   });
+
+  // Bot status from health endpoint
+  if (botEl) {
+    fetchWithTimeout("/api/health", {}, 10000).then(function(r){ return r.json(); }).then(function(d) {
+      var last = d.lastRefreshInfo || {};
+      var status = d.refreshInProgress ? '<span class="text-amber-400">Обновление...</span>' : '<span class="text-emerald-400">Активен</span>';
+      var finished = last.finishedAt ? fmtAge(last.finishedAt) : '—';
+      botEl.innerHTML = ''
+        + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-white">' + status + '</div><div class="text-[10px] text-gray-500">Статус</div></div>'
+        + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-white">' + (last.adminsTotal || '—') + '</div><div class="text-[10px] text-gray-500">Админов</div></div>'
+        + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-white">' + (last.profilesOk || '—') + '</div><div class="text-[10px] text-gray-500">Профилей</div></div>'
+        + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-white">' + finished + '</div><div class="text-[10px] text-gray-500">Последнее обновление</div></div>';
+    }).catch(function() {
+      botEl.innerHTML = '<div class="col-span-full text-gray-500 text-xs">Статус бота недоступен</div>';
+    });
+  }
 }
 
 function ownerShowResult(msg, ok) {

@@ -329,6 +329,7 @@
                     </div>
                 </div>
                 <div class="scroll-panel">
+                    <div id="myStatsInfo" class="text-gray-500 text-[10px] mb-2 px-1"></div>
                     <div id="myStatsContent" class="p-4"></div>
                 </div>
             </div>
@@ -336,12 +337,6 @@
             <!-- Tab: Admin Panel -->
             <div id="tab-adminpanel" class="tab-content">
                 <div class="scroll-panel p-4">
-                    <!-- Staff Overview -->
-                    <div class="glass-panel rounded-2xl p-5 mb-4">
-                        <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="ph ph-chart-line-up text-emerald-400"></i> Обзор стаффа</h3>
-                        <div id="staffOverviewCards" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
-                    </div>
-
                     <!-- Owner Settings -->
                     <div class="glass-panel rounded-2xl p-5 mb-4">
                         <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="ph ph-gear-six text-[#5865F2]"></i> Настройки владельца</h3>
@@ -355,6 +350,14 @@
                             </button>
                         </div>
                         <div id="ownerActionResult" class="mt-3 text-xs hidden"></div>
+                    </div>
+
+                    <!-- Bot Status -->
+                    <div class="glass-panel rounded-2xl p-5 mb-4">
+                        <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="ph ph-robot text-emerald-400"></i> Статус бота</h3>
+                        <div id="botStatusInfo" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                            <div class="text-gray-500">Загрузка...</div>
+                        </div>
                     </div>
 
                     <!-- Tab Access Control -->
