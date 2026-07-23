@@ -792,9 +792,9 @@ app.get("/api/unconfigured-profiles", async (_req, res) => {
              (p.raw_json->>'created_at') AS fear_created_at,
              p.updated_at
       FROM profiles p
-      WHERE (p.kills IS NULL OR p.kills = 0)
+      WHERE (p.raw_json->'stats' IS NULL OR p.raw_json->'stats' = '{}'::jsonb OR (p.playtime IS NULL OR p.playtime = 0))
+        AND (p.kills IS NULL OR p.kills = 0)
         AND (p.deaths IS NULL OR p.deaths = 0)
-        AND (p.playtime IS NULL OR p.playtime = 0)
       ORDER BY p.updated_at DESC NULLS LAST
       LIMIT 50
     `);
@@ -1102,12 +1102,16 @@ app.get("/api/analytics/staff-top", requireOwner, async (req, res) => {
   } catch (error) { res.status(500).json({ error: "Internal server error" }); }
 });
 
-app.get("/api/analytics/drops-summary", requireOwner, async (_req, res) => {
+app.get("/api/analytics/drops-summary", requireOwner, async (req, res) => {
   try {
+    const period = Number(req.query.period) || -1;
     const db = require("./db").pool;
-    const total = (await db.query(`SELECT COUNT(*)::int as skins, COUNT(DISTINCT steamid)::int as players, COALESCE(SUM(price), 0)::int as value FROM drops`)).rows[0];
-    const today = (await db.query(`SELECT COUNT(*)::int as skins, COUNT(DISTINCT steamid)::int as players FROM drops WHERE created_at > NOW() - INTERVAL '24 hours'`)).rows[0];
-    res.json({ totalSkins: total.skins, totalPlayers: total.players, totalValue: total.value, todaySkins: today.skins, todayPlayers: today.players });
+    let where = '';
+    if (period === 0) where = "WHERE created_at > NOW() - INTERVAL '24 hours'";
+    else if (period === 1) where = "WHERE created_at > NOW() - INTERVAL '7 days'";
+    else if (period === 2) where = "WHERE created_at > NOW() - INTERVAL '30 days'";
+    const total = (await db.query(`SELECT COUNT(*)::int as skins, COUNT(DISTINCT steamid)::int as players, COALESCE(SUM(price), 0)::int as value FROM drops ${where}`)).rows[0];
+    res.json({ totalSkins: total.skins, totalPlayers: total.players, totalValue: total.value });
   } catch (error) { res.status(500).json({ error: "Internal server error" }); }
 });
 

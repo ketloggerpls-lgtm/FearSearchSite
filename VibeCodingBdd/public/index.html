@@ -399,12 +399,13 @@
                         </div>
                         <div class="glass-panel rounded-xl p-4">
                             <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-list-numbers text-[#5865F2]"></i> Последние дропы</h3>
-                            <div class="flex gap-2 mb-3">
+                            <div class="flex gap-2 mb-3 flex-wrap">
+                                <button onclick="loadAnalyticsDrops(-1)" id="dropsAllBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Всё время</button>
                                 <button onclick="loadAnalyticsDrops(0)" id="dropsDayBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-[#5865F2]/40 bg-[#5865F2]/20 text-[#818cf8]">Сегодня</button>
                                 <button onclick="loadAnalyticsDrops(1)" id="dropsWeekBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Неделя</button>
                                 <button onclick="loadAnalyticsDrops(2)" id="dropsMonthBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Месяц</button>
                             </div>
-                            <div id="analyticsDropList"></div>
+                            <div id="analyticsDropList" class="max-h-[300px] overflow-y-auto pr-1"></div>
                         </div>
                     </div>
                 </div>

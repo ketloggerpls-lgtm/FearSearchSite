@@ -1379,30 +1379,36 @@ function loadAnalyticsOnlineChart() {
   }).catch(function() { var el = document.getElementById("analyticsOnlineChart"); if (el) el.innerHTML = '<div class="text-red-400 text-xs text-center py-8">Ошибка</div>'; });
 }
 
-function loadAnalyticsDropsSummary() {
-  fetch("/api/analytics/drops-summary").then(function(r){return r.json()}).then(function(d) {
-    var el = document.getElementById("analyticsDrops");
-    if (!el) return;
+function loadAnalyticsDropsSummary(period) {
+  period = period === undefined ? -1 : period;
+  var labelSkins = period === 0 ? 'Скинов сегодня' : period === 1 ? 'Скинов за неделю' : period === 2 ? 'Скинов за месяц' : 'Всего скинов';
+  var labelPlayers = period === 0 ? 'Игрокам сегодня' : period === 1 ? 'Игрокам за неделю' : period === 2 ? 'Игрокам за месяц' : 'Игрокам';
+  var labelValue = period === 0 ? 'Сумма сегодня' : period === 1 ? 'Сумма за неделю' : period === 2 ? 'Сумма за месяц' : 'Суммарная стоимость';
+  var el = document.getElementById("analyticsDrops");
+  if (!el) return;
+  el.innerHTML = '<div class="text-center text-gray-500 text-xs py-2">Загрузка...</div>';
+  fetch("/api/analytics/drops-summary?period=" + period).then(function(r){return r.json()}).then(function(d) {
     el.innerHTML = ''
       + '<div class="space-y-2">'
-      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">Всего скинов</span><span class="text-white font-bold">' + (d.totalSkins || 0) + '</span></div>'
-      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">Игрокам</span><span class="text-white font-bold">' + (d.totalPlayers || 0) + '</span></div>'
-      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">Суммарная стоимость</span><span class="text-amber-400 font-bold">$' + (d.totalValue || 0) + '</span></div>'
-      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">Сегодня скинов</span><span class="text-purple-400 font-bold">' + (d.todaySkins || 0) + '</span></div>'
-      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">Сегодня игрокам</span><span class="text-purple-400 font-bold">' + (d.todayPlayers || 0) + '</span></div>'
+      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">' + labelSkins + '</span><span class="text-white font-bold">' + (d.totalSkins || 0) + '</span></div>'
+      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">' + labelPlayers + '</span><span class="text-white font-bold">' + (d.totalPlayers || 0) + '</span></div>'
+      + '<div class="flex items-center justify-between text-xs"><span class="text-gray-400">' + labelValue + '</span><span class="text-amber-400 font-bold">$' + (d.totalValue || 0) + '</span></div>'
       + '</div>';
-  }).catch(function() {});
+  }).catch(function() { el.innerHTML = ''; });
 }
 
 var analyticsDropPage = 0;
+var currentAnalyticsDropPeriod = 0;
 function loadAnalyticsDrops(period) {
+  currentAnalyticsDropPeriod = period;
   analyticsDropPage = 0;
-  document.querySelectorAll('#tab-analytics [id^="dropsDayBtn"],#tab-analytics [id^="dropsWeekBtn"],#tab-analytics [id^="dropsMonthBtn"]').forEach(function(b) {
+  document.querySelectorAll('#tab-analytics [id^="dropsAllBtn"],#tab-analytics [id^="dropsDayBtn"],#tab-analytics [id^="dropsWeekBtn"],#tab-analytics [id^="dropsMonthBtn"]').forEach(function(b) {
     b.className = 'px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500';
   });
-  var btnId = period === 0 ? 'dropsDayBtn' : period === 1 ? 'dropsWeekBtn' : 'dropsMonthBtn';
+  var btnId = period === -1 ? 'dropsAllBtn' : period === 0 ? 'dropsDayBtn' : period === 1 ? 'dropsWeekBtn' : 'dropsMonthBtn';
   var btn = document.getElementById(btnId);
   if (btn) btn.className = 'px-3 py-1 rounded-lg text-[11px] font-medium border border-[#5865F2]/40 bg-[#5865F2]/20 text-[#818cf8]';
+  loadAnalyticsDropsSummary(period);
   fetchAnalyticsDropsPage(period, 0);
 }
 
@@ -1438,6 +1444,7 @@ function fetchAnalyticsDropsPage(period, page) {
 // ===================== ALL PLAYERS TAB =====================
 var livePlayersData = [];
 var livePlayersSearchQuery = "";
+var unconfiguredSteamIds = new Set();
 
 function loadAllPlayersTab() {
   loadLivePlayers();
@@ -1456,7 +1463,6 @@ function renderLivePlayerCard(p) {
   var connectUrl = ipPort ? "steam://connect/" + ipPort : "";
   var serverName = p.server_name || "";
   var serverMap = p.server_map || "";
-  var serverLocation = p.server_location || "";
   var gameType = p.game_type || "CS2";
 
   var steamAvatar = p.steam_avatarfull || "";
@@ -1464,93 +1470,46 @@ function renderLivePlayerCard(p) {
   var displayName = p.steam_personaname || p.nickname || p.db_name || steamId;
 
   var dateObj = formatAccountDate(p.steam_timecreated);
-
   var avatarUrl = steamAvatar || defaultAvatar;
 
-  var html = '<div class="rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15] transition-all">';
+  var html = '<div class="rounded-xl border border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15] transition-all">';
+  html += '<div class="p-2.5">';
 
-  html += '<div class="p-3">';
-  html += '<div class="flex items-start gap-3">';
-
+  // Header row
+  html += '<div class="flex items-start gap-2.5">';
   if (steamAvatar) {
-    html += '<img src="' + esc(avatarUrl) + '" class="w-[46px] h-[46px] rounded-full object-cover shrink-0" onerror="this.src=\'' + defaultAvatar + '\'">';
+    html += '<img src="' + esc(avatarUrl) + '" class="w-10 h-10 rounded-full object-cover shrink-0" onerror="this.src=\'' + defaultAvatar + '\'">';
   } else {
-    html += '<div class="w-[46px] h-[46px] rounded-full bg-white/[0.08] flex items-center justify-center shrink-0 text-gray-500 font-bold text-lg">?</div>';
+    html += '<div class="w-10 h-10 rounded-full bg-white/[0.08] flex items-center justify-center shrink-0 text-gray-500 font-bold text-sm">?</div>';
   }
-
   html += '<div class="flex-1 min-w-0">';
   html += '<a href="' + fearUrl + '" target="_blank" class="text-[12px] font-semibold text-white truncate block hover:text-[#818cf8] transition-colors">' + esc(displayName) + '</a>';
-  html += '<div class="text-[10px] text-gray-500 font-mono mt-0.5">' + esc(steamId) + '</div>';
+  html += '<div class="text-[9px] text-gray-500 font-mono">' + esc(steamId) + '</div>';
   if (dateObj.fullDate) {
-    html += '<div class="flex items-center gap-1.5 mt-1">';
-    html += '<i class="ph ph-clock text-[10px] text-gray-600"></i>';
-    html += '<span class="text-[10px] text-gray-400">' + esc(dateObj.fullDate) + '</span>';
-    html += '</div>';
-    if (dateObj.relativeTime) {
-      html += '<div class="text-[9px] text-gray-600 mt-0.5 ml-[18px]">' + esc(dateObj.relativeTime) + '</div>';
-    }
+    html += '<div class="text-[9px] text-gray-600 mt-0.5">' + esc(dateObj.fullDate) + ' <span class="text-gray-700">•</span> ' + esc(dateObj.relativeTime) + '</div>';
   }
   html += '</div>';
+  html += '</div>';
 
-  html += '<div class="flex items-start gap-2 shrink-0">';
+  // Server + stats row
+  html += '<div class="flex items-center flex-wrap gap-1.5 mt-2">';
   if (serverName) {
     var gameBadgeClass = gameType === "CS:GO" ? 'bg-orange-400/15 text-orange-400' : 'bg-[#5865F2]/15 text-[#818cf8]';
-    html += '<div class="rounded-lg p-2 bg-white/[0.04] min-w-[140px]">';
-    html += '<div class="flex items-center gap-1.5 mb-1">';
-    html += '<span class="text-[9px] font-semibold px-1.5 py-0.5 rounded ' + gameBadgeClass + '">' + gameType + '</span>';
-    html += '<span class="text-[10px] font-medium text-white truncate">' + esc(serverName) + '</span>';
-    html += '</div>';
-    if (serverMap) {
-      html += '<div class="flex items-center gap-1 text-[9px] text-gray-400">';
-      html += '<i class="ph ph-map-pin text-[8px]"></i>';
-      html += '<span>' + esc(serverMap) + '</span>';
-      html += '</div>';
-    }
-    if (serverLocation) {
-      html += '<div class="flex items-center gap-1 text-[9px] text-gray-500 mt-0.5">';
-      html += '<i class="ph ph-radio-button text-[6px] text-emerald-400"></i>';
-      html += '<span>' + esc(serverLocation) + '</span>';
-      html += '</div>';
-    }
-    if (ipPort) {
-      html += '<div class="flex items-center gap-1 text-[9px] text-gray-500 mt-0.5">';
-      html += '<i class="ph ph-globe text-[8px]"></i>';
-      html += '<span class="font-mono">' + esc(ipPort) + '</span>';
-      html += '</div>';
-    }
-    html += '</div>';
+    html += '<span class="text-[9px] px-1.5 py-0.5 rounded ' + gameBadgeClass + '">' + esc(serverName) + (serverMap ? ' • ' + esc(serverMap) : '') + '</span>';
   }
+  html += '<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">K ' + kills + '</span>';
+  html += '<span class="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">D ' + deaths + '</span>';
+  html += '<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">' + ping + 'ms</span>';
   html += '</div>';
 
-  html += '</div>';
-
-  html += '<div class="grid grid-cols-3 gap-2 mt-3">';
-  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
-  html += '<div class="text-[10px] text-gray-500 mb-0.5">Убийства</div>';
-  html += '<div class="text-[14px] font-bold text-emerald-400">' + kills + '</div>';
-  html += '</div>';
-  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
-  html += '<div class="text-[10px] text-gray-500 mb-0.5">Смерти</div>';
-  html += '<div class="text-[14px] font-bold text-red-400">' + deaths + '</div>';
-  html += '</div>';
-  html += '<div class="text-center py-2 rounded-lg bg-white/[0.04]">';
-  html += '<div class="text-[10px] text-gray-500 mb-0.5">Пинг</div>';
-  html += '<div class="text-[14px] font-bold text-blue-400">' + ping + '<span class="text-[9px] font-normal">ms</span></div>';
-  html += '</div>';
-  html += '</div>';
-
-  html += '<div class="flex gap-1.5 mt-2">';
-  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-steam-logo text-[11px]"></i>Профиль Steam</a>';
-  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-shield text-[11px]"></i>Профиль Fear</a>';
-  html += '<button onclick="copyToClipboard(\'' + esc(steamId) + '\', this)" class="py-1.5 px-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white transition-colors flex items-center gap-1"><i class="ph ph-copy text-[11px]"></i>SteamID</button>';
-  html += '</div>';
-
-  html += '<div class="flex gap-1.5 mt-1.5">';
+  // Actions
+  html += '<div class="flex items-center gap-1 mt-2">';
+  html += '<a href="' + steamUrl + '" target="_blank" class="flex-1 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors" title="Steam"><i class="ph ph-steam-logo"></i></a>';
+  html += '<a href="' + fearUrl + '" target="_blank" class="flex-1 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors" title="Fear"><i class="ph ph-shield"></i></a>';
+  html += '<button onclick="copyToClipboard(\'' + esc(steamId) + '\', this)" class="flex-1 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white transition-colors" title="SteamID"><i class="ph ph-copy"></i></button>';
   if (ipPort) {
-    html += '<button onclick="copyToClipboard(\'' + esc(ipPort) + '\', this)" class="flex-1 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-copy text-[11px]"></i>IP:PORT</button>';
-    html += '<a href="' + connectUrl + '" class="flex-1 py-1.5 rounded-lg bg-[#5865F2]/15 hover:bg-[#5865F2]/25 text-[10px] text-[#818cf8] font-medium text-center transition-colors flex items-center justify-center gap-1"><i class="ph ph-plugs text-[11px]"></i>Подключиться</a>';
-  } else {
-    html += '<div class="flex-1"></div>';
+    html += '<button onclick="copyToClipboard(\'' + esc(ipPort) + '\', this)" class="flex-1 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[10px] text-gray-400 hover:text-white transition-colors" title="IP:PORT"><i class="ph ph-globe"></i></button>';
+    html += '<a href="' + connectUrl + '" class="flex-1 py-1 rounded bg-[#5865F2]/15 hover:bg-[#5865F2]/25 text-[10px] text-[#818cf8] text-center transition-colors" title="Подключиться"><i class="ph ph-plugs"></i></a>';
   }
   html += '</div>';
 
@@ -1772,9 +1731,14 @@ function loadLivePlayers() {
 function renderLivePlayersList() {
   var listEl = document.getElementById("allPlayersList");
   var q = livePlayersSearchQuery.toLowerCase();
+  var toggle = document.getElementById("unconfiguredToggle");
+  var showUnconfigured = !toggle || toggle.checked;
   var filtered = livePlayersData;
+  if (!showUnconfigured) {
+    filtered = filtered.filter(function(p) { return !unconfiguredSteamIds.has(p.steamid); });
+  }
   if (q) {
-    filtered = livePlayersData.filter(function(p) {
+    filtered = filtered.filter(function(p) {
       var name = (p.nickname || p.db_name || "").toLowerCase();
       var sid = (p.steamid || "").toLowerCase();
       return name.indexOf(q) !== -1 || sid.indexOf(q) !== -1;
@@ -1800,6 +1764,7 @@ function loadUnconfigured() {
   el.innerHTML = '<div class="space-y-2"><div class="skeleton h-[80px]"></div><div class="skeleton h-[80px]"></div></div>';
   fetch("/api/unconfigured-profiles").then(function(r){return r.json()}).then(function(d) {
     var profiles = d.profiles || [];
+    unconfiguredSteamIds = new Set(profiles.map(function(p) { return p.steamid; }));
     totalEl.textContent = profiles.length;
     if (!profiles.length) { el.innerHTML = '<div class="text-center text-gray-500 text-[11px] py-4">Все настроены</div>'; return; }
     el.innerHTML = profiles.map(function(p) { return renderUnconfiguredCard(p); }).join("");
@@ -1838,6 +1803,12 @@ function loadActiveReports() {
 
 var playersSearchTimeout = null;
 var playersSearchInput = document.getElementById("allPlayersSearch");
+var unconfiguredToggle = document.getElementById("unconfiguredToggle");
+if (unconfiguredToggle) {
+  unconfiguredToggle.addEventListener("change", function() {
+    renderLivePlayersList();
+  });
+}
 if (playersSearchInput) {
   playersSearchInput.addEventListener("input", function() {
     clearTimeout(playersSearchTimeout);
