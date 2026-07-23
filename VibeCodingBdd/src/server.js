@@ -1016,15 +1016,38 @@ app.get("/api/analytics/overview", requireOwner, async (_req, res) => {
   } catch (error) { res.status(500).json({ error: "Internal server error" }); }
 });
 
-app.get("/api/analytics/online-history", requireOwner, async (_req, res) => {
+app.get("/api/analytics/online-history", requireOwner, async (req, res) => {
   try {
     const db = require("./db").pool;
-    const r = await db.query(`SELECT ts, online, admins_online, players_online, peak_online FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours' ORDER BY ts ASC`);
-    const points = r.rows.map(row => {
-      const d = new Date(row.ts);
-      return { label: d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), online: row.online, admins: row.admins_online, players: row.players_online, peak: row.peak_online };
-    });
-    res.json({ points });
+    const mode = String(req.query.mode || "hourly");
+    if (mode === "daily") {
+      const r = await db.query(`
+        SELECT DATE(ts) as day,
+               ROUND(AVG(online))::int as avg_online,
+               MAX(peak_online) as peak_online,
+               ROUND(AVG(admins_online))::int as avg_admins,
+               ROUND(AVG(players_online))::int as avg_players
+        FROM server_online_history
+        WHERE ts > NOW() - INTERVAL '30 days'
+        GROUP BY DATE(ts)
+        ORDER BY day ASC
+      `);
+      const points = r.rows.map(row => ({
+        label: new Date(row.day).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }),
+        avg: row.avg_online,
+        peak: row.peak_online,
+        admins: row.avg_admins,
+        players: row.avg_players
+      }));
+      res.json({ points, mode: "daily" });
+    } else {
+      const r = await db.query(`SELECT ts, online, admins_online, players_online, peak_online FROM server_online_history WHERE ts > NOW() - INTERVAL '24 hours' ORDER BY ts ASC`);
+      const points = r.rows.map(row => {
+        const d = new Date(row.ts);
+        return { label: d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), online: row.online, admins: row.admins_online, players: row.players_online, peak: row.peak_online };
+      });
+      res.json({ points, mode: "hourly" });
+    }
   } catch (error) { res.status(500).json({ error: "Internal server error" }); }
 });
 

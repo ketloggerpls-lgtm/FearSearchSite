@@ -389,27 +389,23 @@
                 <div class="scroll-panel p-4">
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4" id="analyticsStats"></div>
                     <div class="glass-panel rounded-xl p-4 mb-4">
-                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-chart-line-up text-[#5865F2]"></i> Онлайн по часам</h3>
+                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-chart-line-up text-[#5865F2]"></i> Онлайн по дням (средний/пик)</h3>
                         <div id="analyticsOnlineChart" class="h-[200px] relative"></div>
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                         <div class="glass-panel rounded-xl p-4">
-                            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-trophy text-amber-400"></i> Топ стаффа</h3>
-                            <div id="analyticsStaffTop"></div>
-                        </div>
-                        <div class="glass-panel rounded-xl p-4">
                             <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-cube text-purple-400"></i> Дроп скинов</h3>
                             <div id="analyticsDrops"></div>
                         </div>
-                    </div>
-                    <div class="glass-panel rounded-xl p-4">
-                        <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-list-numbers text-[#5865F2]"></i> Последние дропы</h3>
-                        <div class="flex gap-2 mb-3">
-                            <button onclick="loadAnalyticsDrops(0)" id="dropsDayBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-[#5865F2]/40 bg-[#5865F2]/20 text-[#818cf8]">Сегодня</button>
-                            <button onclick="loadAnalyticsDrops(1)" id="dropsWeekBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Неделя</button>
-                            <button onclick="loadAnalyticsDrops(2)" id="dropsMonthBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Месяц</button>
+                        <div class="glass-panel rounded-xl p-4">
+                            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="ph ph-list-numbers text-[#5865F2]"></i> Последние дропы</h3>
+                            <div class="flex gap-2 mb-3">
+                                <button onclick="loadAnalyticsDrops(0)" id="dropsDayBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-[#5865F2]/40 bg-[#5865F2]/20 text-[#818cf8]">Сегодня</button>
+                                <button onclick="loadAnalyticsDrops(1)" id="dropsWeekBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Неделя</button>
+                                <button onclick="loadAnalyticsDrops(2)" id="dropsMonthBtn" class="px-3 py-1 rounded-lg text-[11px] font-medium border border-white/10 text-gray-500">Месяц</button>
+                            </div>
+                            <div id="analyticsDropList"></div>
                         </div>
-                        <div id="analyticsDropList"></div>
                     </div>
                 </div>
             </div>

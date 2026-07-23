@@ -1331,65 +1331,52 @@ function loadAnalytics() {
       + '<div class="text-center p-3 rounded-xl bg-white/[0.03] border border-white/5"><div class="text-lg font-bold text-orange-400">' + (d.todayDrops || 0) + '</div><div class="text-[10px] text-gray-500">Дропов сегодня</div></div>';
   }).catch(function(){});
   loadAnalyticsOnlineChart();
-  loadAnalyticsStaffTop();
   loadAnalyticsDropsSummary();
   loadAnalyticsDrops(0);
 }
 
 function loadAnalyticsOnlineChart() {
-  fetch("/api/analytics/online-history").then(function(r){return r.json()}).then(function(d) {
+  fetch("/api/analytics/online-history?mode=daily").then(function(r){return r.json()}).then(function(d) {
     var el = document.getElementById("analyticsOnlineChart");
     if (!el) return;
     var points = d.points || [];
     if (!points.length) { el.innerHTML = '<div class="text-gray-500 text-xs text-center py-8">Нет данных</div>'; return; }
-    var maxVal = Math.max.apply(null, points.map(function(p) { return p.online; })) || 1;
+    var maxVal = Math.max.apply(null, points.map(function(p) { return p.peak || p.online || 0; })) || 1;
     var w = el.offsetWidth || 600;
     var h = 200;
     var step = w / Math.max(points.length - 1, 1);
     var svg = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">';
     svg += '<defs><linearGradient id="og" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5865F2" stop-opacity="0.3"/><stop offset="100%" stop-color="#5865F2" stop-opacity="0"/></linearGradient></defs>';
-    var pathD = '';
-    var areaD = 'M0,' + h;
+    // Peak area
+    var peakPath = '', peakArea = 'M0,' + h;
     points.forEach(function(p, i) {
       var x = i * step;
-      var y = h - (p.online / maxVal) * (h - 20) - 10;
-      if (i === 0) { pathD += 'M' + x + ',' + y; areaD += ' L' + x + ',' + y; }
-      else { pathD += ' L' + x + ',' + y; areaD += ' L' + x + ',' + y; }
+      var y = h - ((p.peak || p.online || 0) / maxVal) * (h - 20) - 10;
+      if (i === 0) { peakPath += 'M' + x + ',' + y; peakArea += ' L' + x + ',' + y; }
+      else { peakPath += ' L' + x + ',' + y; peakArea += ' L' + x + ',' + y; }
     });
-    areaD += ' L' + ((points.length - 1) * step) + ',' + h + ' Z';
-    svg += '<path d="' + areaD + '" fill="url(#og)"/>';
-    svg += '<path d="' + pathD + '" fill="none" stroke="#5865F2" stroke-width="2"/>';
+    peakArea += ' L' + ((points.length - 1) * step) + ',' + h + ' Z';
+    svg += '<path d="' + peakArea + '" fill="url(#og)"/>';
+    svg += '<path d="' + peakPath + '" fill="none" stroke="#10b981" stroke-width="2"/>';
+    // Avg line
+    var avgPath = '';
     points.forEach(function(p, i) {
-      if (i % Math.ceil(points.length / 10) === 0 || i === points.length - 1) {
+      var x = i * step;
+      var y = h - ((p.avg || p.online || 0) / maxVal) * (h - 20) - 10;
+      if (i === 0) avgPath += 'M' + x + ',' + y;
+      else avgPath += ' L' + x + ',' + y;
+    });
+    svg += '<path d="' + avgPath + '" fill="none" stroke="#5865F2" stroke-width="2" stroke-dasharray="4,4"/>';
+    points.forEach(function(p, i) {
+      if (i % Math.ceil(points.length / 8) === 0 || i === points.length - 1) {
         var x = i * step;
-        var y = h - (p.online / maxVal) * (h - 20) - 10;
-        svg += '<circle cx="' + x + '" cy="' + y + '" r="3" fill="#5865F2"/>';
         svg += '<text x="' + x + '" y="' + (h - 2) + '" fill="#6b7280" font-size="9" text-anchor="middle">' + esc(p.label || '') + '</text>';
       }
     });
     svg += '</svg>';
+    svg += '<div class="flex items-center gap-4 mt-2 text-[10px]"><span class="text-emerald-400">— Пик</span><span class="text-[#818cf8]">- - Средний</span></div>';
     el.innerHTML = svg;
   }).catch(function() { var el = document.getElementById("analyticsOnlineChart"); if (el) el.innerHTML = '<div class="text-red-400 text-xs text-center py-8">Ошибка</div>'; });
-}
-
-function loadAnalyticsStaffTop() {
-  fetch("/api/analytics/staff-top").then(function(r){return r.json()}).then(function(d) {
-    var el = document.getElementById("analyticsStaffTop");
-    if (!el) return;
-    var rows = d.rows || [];
-    if (!rows.length) { el.innerHTML = '<div class="text-gray-500 text-xs">Нет данных</div>'; return; }
-    var html = '';
-    rows.slice(0, 10).forEach(function(r, i) {
-      var medals = ['🥇','🥈','🥉'];
-      var medal = i < 3 ? medals[i] : '<span class="text-gray-600">' + (i+1) + '</span>';
-      html += '<div class="flex items-center gap-2 py-1.5 px-2 rounded bg-white/[0.03] text-xs">';
-      html += '<span class="w-6 text-center">' + medal + '</span>';
-      html += '<span class="flex-1 text-white truncate">' + esc(r.name || r.steamid) + '</span>';
-      html += '<span class="text-gray-500">' + r.bans + 'Б/' + r.mutes + 'М</span>';
-      html += '</div>';
-    });
-    el.innerHTML = html;
-  }).catch(function() {});
 }
 
 function loadAnalyticsDropsSummary() {
