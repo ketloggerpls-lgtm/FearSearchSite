@@ -1701,9 +1701,60 @@ function renderGroupedReport(group) {
   }
 
   html += '<div class="mt-1.5 text-[9px] text-gray-600">' + esc(latestTime) + '</div>';
+
+  var reportId = latest.id || latest.report_id || latest.ticket_id || '';
+  if (reportId) {
+    var formId = 'closeReport_' + esc(String(steamid).replace(/\D/g, ''));
+    html += '<div class="mt-2 pt-2 border-t border-white/5">';
+    html += '<div class="flex gap-1.5" id="' + formId + '_row">';
+    html += '<select id="' + formId + '_reason" class="flex-1 bg-black/30 border border-white/10 rounded-lg text-[10px] text-gray-300 px-2 py-1.5 outline-none focus:border-[#5865F2]">';
+    html += '<option value="">Выберите решение</option>';
+    html += '<option value="Игрок был наказан">Игрок был наказан</option>';
+    html += '<option value="Нарушение не подтверждено">Нарушение не подтверждено</option>';
+    html += '<option value="Недостаточно доказательств">Недостаточно доказательств</option>';
+    html += '<option value="Требуется дополнительная проверка">Требуется дополнительная проверка</option>';
+    html += '<option value="custom">Свой вердикт</option>';
+    html += '</select>';
+    html += '<button onclick="closeReportGroup(\'' + esc(reportId) + '\', \'' + formId + '\')" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-[10px] font-medium transition-colors">Закрыть</button>';
+    html += '</div>';
+    html += '<input type="text" id="' + formId + '_custom" placeholder="Свой вердикт" class="mt-1.5 w-full bg-black/30 border border-white/10 rounded-lg text-[10px] text-gray-300 px-2 py-1.5 outline-none focus:border-[#5865F2] hidden">';
+    html += '</div>';
+  }
+
   html += '</div>';
   return html;
 }
+
+function closeReportGroup(reportId, formId) {
+  var select = document.getElementById(formId + '_reason');
+  var customInput = document.getElementById(formId + '_custom');
+  if (!select) return;
+  var reason = select.value;
+  if (reason === 'custom') reason = customInput ? (customInput.value.trim() || 'Свой вердикт') : 'Свой вердикт';
+  if (!reason) { alert('Выберите решение'); return; }
+  fetch('/api/reports/' + encodeURIComponent(reportId) + '/close', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  }).then(function(r) {
+    if (!r.ok) throw new Error('Ошибка ' + r.status);
+    return r.json();
+  }).then(function() {
+    var row = document.getElementById(formId + '_row');
+    if (row) row.parentElement.innerHTML = '<div class="text-[10px] text-emerald-400">Репорт закрыт: ' + esc(reason) + '</div>';
+    loadActiveReports();
+  }).catch(function(e) {
+    alert('Не удалось закрыть: ' + e.message);
+  });
+}
+
+// Show custom reason input when selected
+window.addEventListener('change', function(e) {
+  if (e.target && e.target.id && e.target.id.endsWith('_reason') && e.target.value === 'custom') {
+    var custom = document.getElementById(e.target.id.replace('_reason', '_custom'));
+    if (custom) { custom.classList.remove('hidden'); custom.focus(); }
+  }
+});
 
 function loadLivePlayers() {
   var listEl = document.getElementById("allPlayersList");

@@ -165,6 +165,17 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS closed_reports (
+      id SERIAL PRIMARY KEY,
+      report_id TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL,
+      closed_by TEXT,
+      closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_closed_reports_id ON closed_reports(report_id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS vdf_history (
       id SERIAL PRIMARY KEY,
       check_id INTEGER,
@@ -1140,6 +1151,23 @@ async function updateTabAccess(tabId, minRoleRank, enabled) {
   } catch (e) { console.error('updateTabAccess error:', e.message); return false; }
 }
 
+async function getClosedReportIds() {
+  try {
+    const r = await pool.query(`SELECT report_id FROM closed_reports`);
+    return r.rows.map(row => row.report_id);
+  } catch (_) { return []; }
+}
+
+async function closeReport(reportId, reason, closedBy) {
+  try {
+    await pool.query(
+      `INSERT INTO closed_reports (report_id, reason, closed_by) VALUES ($1, $2, $3) ON CONFLICT (report_id) DO UPDATE SET reason = EXCLUDED.reason, closed_by = EXCLUDED.closed_by, closed_at = NOW()`,
+      [reportId, reason, closedBy]
+    );
+    return true;
+  } catch (e) { console.error('closeReport error:', e.message); return false; }
+}
+
 module.exports = {
   pool,
   initDb,
@@ -1182,6 +1210,8 @@ module.exports = {
   getReportsCount,
   getTabAccess,
   updateTabAccess,
+  getClosedReportIds,
+  closeReport,
   getAllProfiles,
   getSiteUserByUsernameAny,
   activateSiteUser,

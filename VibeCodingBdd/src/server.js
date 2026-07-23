@@ -37,7 +37,9 @@ const {
   removeOwner,
   getReportsCount,
   getTabAccess,
-  updateTabAccess
+  updateTabAccess,
+  getClosedReportIds,
+  closeReport
 } = require("./db");
 const { FearAuthError, fetchAdmins, fetchProfile, fetchJson } = require("./fearApi");
 const { fetchSteamAccountCreationDates } = require("./steamApi");
@@ -802,10 +804,30 @@ app.get("/api/unconfigured-profiles", async (_req, res) => {
 
 app.get("/api/active-reports", async (_req, res) => {
   try {
-    const data = await fetchJson("/reports/recent");
-    const reports = Array.isArray(data) ? data : (data.reports || data.data || []);
+    const [data, closedIds] = await Promise.all([
+      fetchJson("/reports/recent"),
+      getClosedReportIds()
+    ]);
+    const closedSet = new Set(closedIds);
+    let reports = Array.isArray(data) ? data : (data.reports || data.data || []);
+    reports = reports.filter(r => !closedSet.has(String(r.id || r.report_id || r.ticket_id || '')));
     res.json({ reports });
   } catch (_) { res.json({ reports: [] }); }
+});
+
+app.post("/api/reports/:id/close", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const reportId = String(req.params.id);
+    const { reason } = req.body || {};
+    if (!reportId || !reason) return res.status(400).json({ error: "report id and reason required" });
+    const ok = await closeReport(reportId, reason, req.user.username || req.user.id || '');
+    if (!ok) throw new Error("closeReport failed");
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error("Failed to close report", { error: error.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.get("/api/refresh-status", (_req, res) => {
