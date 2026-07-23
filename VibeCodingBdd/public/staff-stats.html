@@ -61,9 +61,18 @@
             <div class="flex items-center gap-1.5 mb-3 flex-wrap">
                 <button class="period-btn active px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-month">Этот месяц</button>
                 <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-month">Прошлый месяц</button>
-                <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">Эта неделя (Пн–Вс)</button>
+                <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="this-week">Эта неделя</button>
                 <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="last-week">Прошлая неделя</button>
                 <button class="period-btn px-3 py-1.5 rounded-lg text-xs font-medium border border-white/10" data-period="all">Все время</button>
+                <select id="monthSelect" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
+                    <option value="">Месяц</option>
+                </select>
+                <select id="weekSelect" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
+                    <option value="">Неделя</option>
+                </select>
+                <input type="date" id="customFrom" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
+                <input type="date" id="customTo" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-300 outline-none">
+                <button id="customApply" class="px-3 py-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-xs font-semibold transition-colors">OK</button>
             </div>
 
             <div class="flex items-center gap-2">
@@ -146,24 +155,35 @@
         function getPeriodParams(period) {
             var now = new Date();
             var from, to;
+            if (customPeriod) return customPeriod;
+            if (period && period.indexOf('month-') === 0) {
+                var parts = period.replace('month-', '').split('-');
+                var y = parseInt(parts[0]), m = parseInt(parts[1]) - 1;
+                from = new Date(y, m, 1); to = new Date(y, m + 1, 0, 23, 59, 59); return { from: from.toISOString(), to: to.toISOString() };
+            }
+            if (period && period.indexOf('week-') === 0) {
+                var parts = period.replace('week-', '').split('_');
+                from = new Date(parts[0]); from.setHours(0, 0, 0, 0);
+                to = new Date(parts[1]); to.setHours(23, 59, 59); return { from: from.toISOString(), to: to.toISOString() };
+            }
             switch(period) {
-                case "this-month":
+                case 'this-month':
                     from = new Date(now.getFullYear(), now.getMonth(), 1); to = now; break;
-                case "last-month":
+                case 'last-month':
                     from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
                     to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59); break;
-                case "this-week": {
+                case 'this-week': {
                     var day = now.getDay(); var diff = day === 0 ? 6 : day - 1;
                     from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
                     from.setHours(0, 0, 0, 0); to = now; break;
                 }
-                case "last-week": {
+                case 'last-week': {
                     var day2 = now.getDay(); var diff2 = day2 === 0 ? 6 : day2 - 1;
                     from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff2 - 7);
                     from.setHours(0, 0, 0, 0);
                     to = new Date(from.getTime() + 7 * 86400000 - 1); break;
                 }
-                case "all": from = new Date(2020, 0, 1); to = now; break;
+                case 'all': from = new Date(2020, 0, 1); to = now; break;
                 default: from = new Date(now.getFullYear(), now.getMonth(), 1); to = now;
             }
             return { from: from.toISOString(), to: to.toISOString() };
@@ -171,7 +191,44 @@
 
         function formatPeriodLabel(period) {
             var p = getPeriodParams(period);
-            return new Date(p.from).toLocaleDateString("ru-RU") + " — " + new Date(p.to).toLocaleDateString("ru-RU");
+            return new Date(p.from).toLocaleDateString('ru-RU') + ' — ' + new Date(p.to).toLocaleDateString('ru-RU');
+        }
+
+        var customPeriod = null;
+
+        function populateMonthWeekSelects() {
+            var monthSel = document.getElementById('monthSelect');
+            var weekSel = document.getElementById('weekSelect');
+            if (!monthSel || !weekSel) return;
+            var now = new Date();
+            var months = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+            for (var y = now.getFullYear(); y >= 2025; y--) {
+                for (var m = (y === now.getFullYear() ? now.getMonth() : 11); m >= 0; m--) {
+                    var opt = document.createElement('option');
+                    opt.value = 'month-' + y + '-' + String(m + 1).padStart(2, '0');
+                    opt.textContent = months[m] + ' ' + y;
+                    monthSel.appendChild(opt);
+                }
+            }
+            var start = new Date(2025, 0, 1);
+            var monday = new Date(start);
+            monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+            var weekNum = 1;
+            while (monday <= now) {
+                var sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+                var opt = document.createElement('option');
+                opt.value = 'week-' + monday.toISOString().split('T')[0] + '_' + sunday.toISOString().split('T')[0];
+                opt.textContent = 'Нед ' + weekNum + ': ' + monday.toLocaleDateString('ru-RU') + ' — ' + sunday.toLocaleDateString('ru-RU');
+                weekSel.appendChild(opt);
+                monday.setDate(monday.getDate() + 7);
+                weekNum++;
+            }
+        }
+
+        populateMonthWeekSelects();
+
+        function resetPeriodButtons() {
+            document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
         }
 
         var isOwner = false;
@@ -380,10 +437,43 @@
             btn.addEventListener("click", function() {
                 document.querySelectorAll(".period-btn").forEach(function(b) { b.classList.remove("active"); });
                 btn.classList.add("active");
+                customPeriod = null;
+                document.getElementById("monthSelect").value = "";
+                document.getElementById("weekSelect").value = "";
                 currentPeriod = btn.dataset.period;
                 if (currentView === "logs") return loadLogs(0);
                 loadStats();
             });
+        });
+
+        document.getElementById("monthSelect").addEventListener("change", function() {
+            if (!this.value) return;
+            resetPeriodButtons();
+            document.getElementById("weekSelect").value = "";
+            customPeriod = null;
+            currentPeriod = this.value;
+            loadStats();
+        });
+
+        document.getElementById("weekSelect").addEventListener("change", function() {
+            if (!this.value) return;
+            resetPeriodButtons();
+            document.getElementById("monthSelect").value = "";
+            customPeriod = null;
+            currentPeriod = this.value;
+            loadStats();
+        });
+
+        document.getElementById("customApply").addEventListener("click", function() {
+            var from = document.getElementById("customFrom").value;
+            var to = document.getElementById("customTo").value;
+            if (!from || !to) return;
+            resetPeriodButtons();
+            document.getElementById("monthSelect").value = "";
+            document.getElementById("weekSelect").value = "";
+            customPeriod = { from: new Date(from).toISOString(), to: new Date(to + "T23:59:59").toISOString() };
+            currentPeriod = "custom";
+            loadStats();
         });
 
         function switchView(view) {
