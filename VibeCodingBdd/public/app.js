@@ -1288,15 +1288,34 @@ function loadTabAccess() {
 }
 
 function toggleTabAccess(tabId, minRank, enabled) {
-  fetch("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: minRank, enabled: enabled }) })
-    .then(function(r) { return r.json(); }).then(function() { loadTabAccess(); }).catch(function() {});
+  var btn = document.querySelector('button[onclick*="toggleTabAccess(\'' + tabId + '\'"]');
+  if (btn) btn.disabled = true;
+  fetchWithTimeout("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: minRank, enabled: enabled }) }, 10000)
+    .then(function(r) { return r.json().then(function(d) { return { r: r, d: d }; }); })
+    .then(function(res) {
+      if (!res.r.ok) throw new Error(res.d.error || "Ошибка сохранения");
+      loadTabAccess();
+      ownerShowResult("Вкладка обновлена", true);
+    })
+    .catch(function(e) {
+      ownerShowResult("Ошибка: " + (e.message || "не удалось сохранить"), false);
+      if (btn) btn.disabled = false;
+    });
 }
 
 function updateTabAccessRank(tabId, newRank) {
   var currentTab = cachedTabAccess.find(function(t) { return t.tab_id === tabId; });
   var currentEnabled = currentTab ? currentTab.enabled : true;
-  fetch("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: parseInt(newRank), enabled: currentEnabled }) })
-    .then(function(r) { return r.json(); }).then(function() { loadTabAccess(); }).catch(function() {});
+  fetchWithTimeout("/api/tab-access", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ tabId: tabId, minRoleRank: parseInt(newRank), enabled: currentEnabled }) }, 10000)
+    .then(function(r) { return r.json().then(function(d) { return { r: r, d: d }; }); })
+    .then(function(res) {
+      if (!res.r.ok) throw new Error(res.d.error || "Ошибка сохранения");
+      loadTabAccess();
+      ownerShowResult("Ранг вкладки обновлён", true);
+    })
+    .catch(function(e) {
+      ownerShowResult("Ошибка: " + (e.message || "не удалось сохранить"), false);
+    });
 }
 
 // ===================== ROLE CHANGE =====================

@@ -1385,9 +1385,12 @@ app.post("/api/tab-access", requireOwner, async (req, res) => {
   try {
     const { tabId, minRoleRank, enabled } = req.body;
     if (!tabId) return res.status(400).json({ error: "tabId required" });
-    await updateTabAccess(tabId, minRoleRank ?? 7, enabled ?? true);
+    logger.info("Updating tab access", { user: req.user?.username, tabId, minRoleRank, enabled });
+    const ok = await updateTabAccess(tabId, minRoleRank ?? 7, enabled ?? true);
+    if (!ok) throw new Error("updateTabAccess failed");
     res.json({ ok: true });
   } catch (error) {
+    logger.error("Failed to update tab access", { error: error.message, user: req.user?.username });
     res.status(500).json({ error: "Internal server error" });
   }
 });
