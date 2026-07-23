@@ -44,6 +44,64 @@ const logger = require("./logger");
 const { notifyAuthFailure, markAuthRecovered } = require("./notify");
 const { startStaffPunishmentsSync, syncAllStaffPunishments } = require("./punishmentsSync");
 
+// Cache for live servers data to avoid hammering Fear API on every page load
+const SERVERS_CACHE_TTL_MS = Number(process.env.SERVERS_CACHE_TTL_MS || 8000);
+let serversCache = { data: null, enriched: null, ts: 0, promise: null };
+
+async function getCachedServers() {
+  const now = Date.now();
+  if (serversCache.enriched && now - serversCache.ts < SERVERS_CACHE_TTL_MS) {
+    return serversCache.enriched;
+  }
+  if (serversCache.promise) {
+    return serversCache.promise;
+  }
+  serversCache.promise = fetchAndEnrichServers().finally(() => {
+    serversCache.promise = null;
+  });
+  return serversCache.promise;
+}
+
+async function fetchAndEnrichServers() {
+  const data = await fetchJson("/servers");
+  const servers = Array.isArray(data) ? data : (data.servers || []);
+  const adminSteamids = [];
+  servers.forEach(s => {
+    (s.live_data?.players || []).forEach(p => {
+      if (p.steam_id && p.is_admin) adminSteamids.push(p.steam_id);
+    });
+  });
+  const uniqueSteamids = [...new Set(adminSteamids)];
+  const [profilesMap, hiddenStaff] = await Promise.all([
+    getProfilesBySteamids(uniqueSteamids),
+    getHiddenStaff()
+  ]);
+  const hiddenSet = new Set(hiddenStaff.map(h => h.steamid));
+  servers.forEach(s => {
+    (s.live_data?.players || []).forEach(p => {
+      const prof = profilesMap[p.steam_id];
+      if (prof) {
+        p.db_name = prof.name;
+        p.db_playtime = prof.playtime;
+        p.db_kills = prof.kills;
+        p.db_deaths = prof.deaths;
+        p.db_rank = prof.rank;
+        p.db_avatar = prof.avatar_full;
+        p.db_fear_created_at = prof.fear_created_at;
+        p.db_faceit_level = prof.faceit_level;
+        p.db_faceit_elo = prof.faceit_elo;
+        p.db_group_name = prof.group_name;
+        p.db_group_display_name = prof.group_display_name;
+        p.db_hidden = hiddenSet.has(p.steam_id);
+      }
+    });
+  });
+  serversCache.data = servers;
+  serversCache.enriched = servers;
+  serversCache.ts = Date.now();
+  return servers;
+}
+
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_GUILD_ID = "1358108404182159451";
 const DISCORD_ROLE_RANK = {
@@ -340,8 +398,7 @@ app.get("/api/dashboard/stats", async (_req, res) => {
   try {
     let adminsOnline = 0, playersOnline = 0;
     try {
-      const data = await fetchJson("/servers");
-      const servers = Array.isArray(data) ? data : (data.servers || []);
+      const servers = await getCachedServers();
       for (const s of servers) {
         const players = (s.live_data && s.live_data.players) || [];
         for (const p of players) {
@@ -1121,42 +1178,14 @@ app.get("/api/punishments/logs", async (req, res) => {
 
 app.get("/api/servers", async (_req, res) => {
   try {
-    const data = await fetchJson("/servers");
-    const servers = Array.isArray(data) ? data : (data.servers || []);
-    const adminSteamids = [];
-    servers.forEach(s => {
-      (s.live_data?.players || []).forEach(p => {
-        if (p.steam_id && p.is_admin) adminSteamids.push(p.steam_id);
-      });
-    });
-    const uniqueSteamids = [...new Set(adminSteamids)];
-    const [profilesMap, hiddenStaff] = await Promise.all([
-      getProfilesBySteamids(uniqueSteamids),
-      getHiddenStaff()
-    ]);
-    const hiddenSet = new Set(hiddenStaff.map(h => h.steamid));
-    servers.forEach(s => {
-      (s.live_data?.players || []).forEach(p => {
-        const prof = profilesMap[p.steam_id];
-        if (prof) {
-          p.db_name = prof.name;
-          p.db_playtime = prof.playtime;
-          p.db_kills = prof.kills;
-          p.db_deaths = prof.deaths;
-          p.db_rank = prof.rank;
-          p.db_avatar = prof.avatar_full;
-          p.db_fear_created_at = prof.fear_created_at;
-          p.db_faceit_level = prof.faceit_level;
-          p.db_faceit_elo = prof.faceit_elo;
-          p.db_group_name = prof.group_name;
-          p.db_group_display_name = prof.group_display_name;
-          p.db_hidden = hiddenSet.has(p.steam_id);
-        }
-      });
-    });
+    const servers = await getCachedServers();
     res.json({ servers });
   } catch (error) {
     logger.error("Failed to fetch servers", { error: error.message });
+    if (serversCache.enriched) {
+      res.json({ servers: serversCache.enriched });
+      return;
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 });

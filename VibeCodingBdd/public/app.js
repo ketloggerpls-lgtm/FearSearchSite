@@ -9,6 +9,20 @@ fetch("/api/auth/me").then(function(r) {
   }
 }).catch(function() {});
 
+function fetchWithTimeout(url, options, timeoutMs) {
+  timeoutMs = timeoutMs || 10000;
+  return new Promise(function(resolve, reject) {
+    var controller = new AbortController();
+    var timer = setTimeout(function() {
+      controller.abort();
+      reject(new Error("Timeout"));
+    }, timeoutMs);
+    fetch(url, Object.assign({}, options || {}, { signal: controller.signal }))
+      .then(function(r) { clearTimeout(timer); resolve(r); })
+      .catch(function(e) { clearTimeout(timer); reject(e); });
+  });
+}
+
 function loadProfile(user) {
   var pName = document.getElementById("profileName");
   var pRole = document.getElementById("profileRole");
@@ -42,7 +56,7 @@ function loadProfile(user) {
 }
 
 function loadDashboardStats() {
-  fetch("/api/dashboard/stats").then(function(r){return r.json()}).then(function(data) {
+  fetchWithTimeout("/api/dashboard/stats", {}, 10000).then(function(r){return r.json()}).then(function(data) {
     document.getElementById("statAdmins").textContent = data.adminsOnline || 0;
     document.getElementById("statPlayers").textContent = data.playersOnline || 0;
     document.getElementById("statReports").textContent = data.reportsCount || 0;
@@ -273,7 +287,7 @@ var onlinePlayersCache = [];
 
 async function loadOnlineAdmins() {
   try {
-    var res = await fetch("/api/servers");
+    var res = await fetchWithTimeout("/api/servers", {}, 15000);
     var data = await res.json();
     var servers = data.servers || [];
 
