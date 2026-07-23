@@ -3224,6 +3224,77 @@ def _find_member_by_nickname(guild: discord.Guild, nickname: str) -> discord.Mem
             return member
     return None
 
+
+def _extract_discord_from_profile(profile: dict) -> tuple[str, str]:
+    """Извлекает discord_id и discord_nickname из профиля Fear API с учётом разных форматов.
+
+    API FearProject может отдавать discord как dict (id + nickname), как строку (nickname),
+    или хранить данные в полях верхнего уровня (providerUserId, discordNickname и т.д.).
+    """
+    if not isinstance(profile, dict):
+        return "", ""
+
+    discord_raw = profile.get("discord")
+    if isinstance(discord_raw, str):
+        # API вернул discord как строку (nickname)
+        return "", discord_raw.strip()
+
+    discord_data = discord_raw if isinstance(discord_raw, dict) else {}
+
+    d_id = str(
+        discord_data.get("id")
+        or discord_data.get("userId")
+        or profile.get("providerUserId")
+        or profile.get("provider_user_id")
+        or profile.get("discordId")
+        or profile.get("discord_id")
+        or ""
+    ).strip()
+
+    d_name = (
+        discord_data.get("nickname")
+        or discord_data.get("name")
+        or profile.get("discordNickname")
+        or profile.get("discord_nickname")
+        or ""
+    ).strip()
+
+    return d_id, d_name
+
+
+def _extract_discord_from_admin(admin: dict) -> tuple[str, str]:
+    """Извлекает discord_id и discord_nickname из объекта админа API /admins/."""
+    if not isinstance(admin, dict):
+        return "", ""
+
+    discord_raw = admin.get("discord")
+    if isinstance(discord_raw, str):
+        return "", discord_raw.strip()
+
+    discord_data = discord_raw if isinstance(discord_raw, dict) else {}
+
+    d_id = str(
+        admin.get("discord_id")
+        or discord_data.get("id")
+        or discord_data.get("userId")
+        or admin.get("providerUserId")
+        or admin.get("provider_user_id")
+        or admin.get("discordId")
+        or ""
+    ).strip()
+
+    d_name = (
+        admin.get("discord_nickname")
+        or discord_data.get("nickname")
+        or discord_data.get("name")
+        or admin.get("discordNickname")
+        or admin.get("discord_name")
+        or ""
+    ).strip()
+
+    return d_id, d_name
+
+
 def _load_staffboard() -> dict:
     if STAFFBOARD_FILE.exists():
         try:
@@ -8503,6 +8574,11 @@ async def _sync_staff_list() -> dict:
     # === 1. Сохраняем ВСЕХ админов, перенося старые Discord данные ===
     for admin in admins:
         sid = admin.get("steamid")
+        a_did, a_dname = _extract_discord_from_admin(admin)
+        if a_did:
+            admin["discord_id"] = a_did
+        if a_dname:
+            admin["discord_nickname"] = a_dname
         if sid in old_admins:
             old = old_admins[sid]
             # Сохраняем дискорды если они были найдены ранее
@@ -8549,6 +8625,7 @@ async def _sync_staff_list() -> dict:
         current_staff_sids.add(sid)
         role = _STAFF_GROUPS[group]
         name = admin.get("name") or sid
+        admin_did, admin_dname = _extract_discord_from_admin(admin)
 
         if sid in db:
             old_entry = db[sid]
@@ -8564,11 +8641,11 @@ async def _sync_staff_list() -> dict:
                 changed = True
             
             # Также синхронизируем дискорд из админ-кэша если он там появился
-            if admin.get("discord_id") and old_entry.get("discord_id") != admin["discord_id"]:
-                old_entry["discord_id"] = admin["discord_id"]
+            if admin_did and old_entry.get("discord_id") != admin_did:
+                old_entry["discord_id"] = admin_did
                 changed = True
-            if admin.get("discord_nickname") and old_entry.get("discord_name") != admin["discord_nickname"]:
-                old_entry["discord_name"] = admin["discord_nickname"]
+            if admin_dname and old_entry.get("discord_name") != admin_dname:
+                old_entry["discord_name"] = admin_dname
                 changed = True
 
             if changed:
@@ -8577,8 +8654,8 @@ async def _sync_staff_list() -> dict:
         else:
             db[sid] = {
                 "name": name,
-                "discord_id": admin.get("discord_id"),
-                "discord_name": admin.get("discord_nickname"),
+                "discord_id": admin_did,
+                "discord_name": admin_dname,
                 "role": role,
                 "group_name": group,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -8761,11 +8838,9 @@ async def _sync_discord_data(sync_all: bool = False) -> dict:
                 _log(f"  📊 Discord sync: {checked}/{total}...", discord=False)
             
             if profile:
-                discord_data = profile.get("discord") or {}
-                d_id = str(discord_data.get("id") or profile.get("providerUserId") or "")
-                d_name = discord_data.get("nickname") or profile.get("discordNickname") or ""
+                d_id, d_name = _extract_discord_from_profile(profile)
                 
-                # Если API не вернул discord.id (null), ищем участника по нику
+                # Если API не вернул discord.id, ищем участника по нику
                 if not d_id and d_name and bot.guilds:
                     for guild in bot.guilds:
                         member = _find_member_by_nickname(guild, d_name)
@@ -9784,8 +9859,8 @@ async def _refresh_admins_and_notify():
                     _db.db_upsert_profile(profile)
                 except Exception as e:
                     _log(f"⚠️ [PG] Ошибка upsert profile {admin.get('steamid')}: {e}", discord=False)
-                discord_data = profile.get("discord") or {}
-                has_discord = bool(discord_data.get("nickname") or profile.get("discordNickname") or profile.get("providerUserId"))
+                d_id, d_name = _extract_discord_from_profile(profile)
+                has_discord = bool(d_id or d_name)
                 if not has_discord:
                     no_discord.append(admin)
             await asyncio.sleep(0.1)

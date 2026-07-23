@@ -368,6 +368,8 @@ app.get("/api/auth/me", async (req, res) => {
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
   logSiteLogin(req.user.user_id, req.user.username, ip, req.headers['user-agent'], 'session_active', 'GET /api/auth/me');
   var user = { id: req.user.user_id, username: req.user.username, role: req.user.role, discord_name: req.user.discord_name, discord_id: req.user.discord_id };
+  var siteRoleRank = getSiteRoleRank(req.user.role);
+  user.role_rank = siteRoleRank;
   if (req.user.discord_id) {
     try {
       const profResult = await require("./db").pool.query(
@@ -384,12 +386,14 @@ app.get("/api/auth/me", async (req, res) => {
         var resolved = resolveDiscordRole(member.roles || []);
         user.discord_role = resolved ? resolved.label : null;
         user.discord_role_rank = resolved ? resolved.rank : 0;
+        user.role_rank = Math.max(user.role_rank, user.discord_role_rank);
       }
     } catch (e) { logger.error("Discord fetch failed in /api/auth/me", { error: e.message, discord_id: req.user.discord_id }); }
   }
   if (req.user.discord_id && OWNER_DISCORD_IDS.has(String(req.user.discord_id))) {
     user.discord_role_rank = 15;
     user.discord_role = 'Владелец';
+    user.role_rank = 15;
   }
   res.json({ user });
 });

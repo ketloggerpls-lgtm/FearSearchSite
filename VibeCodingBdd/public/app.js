@@ -42,7 +42,7 @@ function loadProfile(user) {
     document.querySelectorAll(".tab-owner-only").forEach(function(el) { el.style.display = ""; });
   }
   fetch("/api/tab-access").then(function(r){return r.json()}).then(function(data) {
-    var userRank = user.discord_role_rank || 0;
+    var userRank = user.role_rank || user.discord_role_rank || 0;
     (data.tabs || []).forEach(function(t) {
       var btn = document.querySelector('.sidebar-nav-btn[data-tab="' + t.tab_id + '"]');
       if (!btn) return;
